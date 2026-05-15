@@ -1,23 +1,43 @@
 {
   "name": "carefully-crafted-plugins",
-  "owner": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
-  "description": "Bridge plugins connecting Claude Code to external coding agents (Codex, Gemini, Cursor).",
-  "metadata": { "pluginRoot": "./plugins" },
+  "owner": {
+    "name": "Aman Rai",
+    "email": "raiaman15@gmail.com"
+  },
+  "metadata": {
+    "description": "Bridge plugins connecting Claude Code to external coding agents (Codex, Gemini, Cursor).",
+    "version": "1.0.0"
+  },
   "plugins": [
     {
       "name": "codex",
-      "source": "codex",
-      "description": "Delegate image generation, hard reasoning, browser tasks, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec."
+      "description": "Delegate image generation, hard reasoning, browser tasks, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Aman Rai",
+        "email": "raiaman15@gmail.com"
+      },
+      "source": "./plugins/codex"
     },
     {
       "name": "gemini",
-      "source": "gemini",
-      "description": "Gemini bridge (coming soon)."
+      "description": "Gemini bridge (coming soon).",
+      "version": "0.0.1",
+      "author": {
+        "name": "Aman Rai",
+        "email": "raiaman15@gmail.com"
+      },
+      "source": "./plugins/gemini"
     },
     {
       "name": "cursor",
-      "source": "cursor",
-      "description": "Cursor bridge (coming soon)."
+      "description": "Cursor bridge (coming soon).",
+      "version": "0.0.1",
+      "author": {
+        "name": "Aman Rai",
+        "email": "raiaman15@gmail.com"
+      },
+      "source": "./plugins/cursor"
     }
   ]
 }
