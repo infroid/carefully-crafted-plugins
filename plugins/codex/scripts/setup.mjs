@@ -139,28 +139,6 @@ function checkCodexInstalled() {
   return { installed: true, version };
 }
 
-function checkPythonWithPillow() {
-  // Codex's $imagegen skill post-processes images using a bundled Python
-  // script that requires Pillow. If `python` isn't on PATH or Pillow isn't
-  // importable, image generation will produce a broken (chroma-green)
-  // output. We surface this as a prerequisite, not a fallback.
-  const probe = spawnSync("python", ["-c", "import PIL"], { stdio: ["ignore", "pipe", "pipe"] });
-  if (probe.error && probe.error.code === "ENOENT") {
-    return { ok: false, reason: "python-not-on-path" };
-  }
-  if (probe.status !== 0) {
-    const err = (probe.stderr || Buffer.from("")).toString();
-    if (/ModuleNotFoundError|No module named/i.test(err)) {
-      return { ok: false, reason: "pillow-missing" };
-    }
-    if (/pyenv:.*command not found/i.test(err)) {
-      return { ok: false, reason: "pyenv-no-global" };
-    }
-    return { ok: false, reason: `exit-${probe.status}` };
-  }
-  return { ok: true };
-}
-
 function scaffoldFiles() {
   const created = [];
   const skipped = [];
@@ -210,26 +188,7 @@ function main() {
   } else {
     console.log(`[warn] codex CLI not detected (${codex.reason}).`);
     console.log("       Install with: npm install -g @openai/codex   (or: brew install codex)");
-    console.log("       Then run:     codex auth");
-  }
-
-  const py = checkPythonWithPillow();
-  if (py.ok) {
-    console.log("[ok] python + Pillow detected (required for $imagegen post-processing)");
-  } else if (py.reason === "pyenv-no-global") {
-    console.log("[warn] pyenv shim present but no global Python configured.");
-    console.log("       Codex's $imagegen post-processing needs `python` on PATH with Pillow.");
-    console.log("       Fix:  pyenv global 3.13.x && pip install pillow");
-  } else if (py.reason === "pillow-missing") {
-    console.log("[warn] python on PATH but Pillow not installed.");
-    console.log("       Codex's $imagegen post-processing needs Pillow.");
-    console.log("       Fix:  pip install pillow   (or: pip install --user pillow)");
-  } else if (py.reason === "python-not-on-path") {
-    console.log("[warn] `python` not on PATH (only python3?).");
-    console.log("       Codex's $imagegen calls `python` literally for post-processing.");
-    console.log("       Fix on macOS:  `ln -s $(which python3) /usr/local/bin/python`  (or set up pyenv)");
-  } else {
-    console.log(`[warn] python+Pillow check failed (${py.reason}). Image generation may produce broken output.`);
+    console.log("       Then run:     codex login");
   }
   console.log("");
 

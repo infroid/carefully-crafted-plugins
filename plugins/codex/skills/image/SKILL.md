@@ -86,13 +86,6 @@ CODEX_TIMEOUT_SEC=180 \
   --ref "docs/carefully-crafted-plugins/output/images/<previous>.png"
 ```
 
-### Prerequisites
-
-Codex's `$imagegen` skill requires `python` (with Pillow) on PATH for its
-internal chroma-key post-processing. If `/codex:setup` warned about this,
-fix it once before image work: `pyenv global 3.13.x && pip install pillow`
-(or your platform's equivalent).
-
 ## Step 4: Report
 
 ```bash
