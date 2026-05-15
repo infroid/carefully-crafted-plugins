@@ -1,0 +1,23 @@
+{
+  "name": "carefully-crafted-plugins",
+  "owner": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
+  "description": "Bridge plugins connecting Claude Code to external coding agents (Codex, Gemini, Cursor).",
+  "metadata": { "pluginRoot": "./plugins" },
+  "plugins": [
+    {
+      "name": "codex",
+      "source": "codex",
+      "description": "Delegate image generation, hard reasoning, browser tasks, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec."
+    },
+    {
+      "name": "gemini",
+      "source": "gemini",
+      "description": "Gemini bridge (coming soon)."
+    },
+    {
+      "name": "cursor",
+      "source": "cursor",
+      "description": "Cursor bridge (coming soon)."
+    }
+  ]
+}

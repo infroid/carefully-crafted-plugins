@@ -1,0 +1,8 @@
+{
+  "name": "codex",
+  "version": "1.0.0",
+  "description": "Delegate tasks to OpenAI Codex CLI from Claude Code via a structured 5-section handoff spec: image generation, hard reasoning offload, headless browser, and a raw passthrough escape hatch.",
+  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
+  "homepage": "https://github.com/raiaman15/carefully-crafted-plugins",
+  "keywords": ["codex", "openai", "bridge", "image-generation", "delegation"]
+}

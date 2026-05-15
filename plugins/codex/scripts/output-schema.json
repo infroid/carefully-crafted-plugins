@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "artifacts", "assumptions", "errors"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial", "error"],
+      "description": "Overall outcome of the delegated task."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-paragraph human-readable summary of what was done."
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "Files Codex produced or modified during this task. Empty array if none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "type", "description"],
+        "properties": {
+          "path": { "type": "string", "description": "Absolute or repo-relative path to the artifact." },
+          "type": { "type": "string", "enum": ["image", "code", "text", "data", "other"] },
+          "description": { "type": "string", "description": "One-line description of the artifact. Use empty string if none." }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "description": "Assumptions Codex made when the spec was ambiguous. Empty array if none.",
+      "items": { "type": "string" }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Non-fatal errors or warnings encountered. Empty array if none.",
+      "items": { "type": "string" }
+    }
+  }
+}

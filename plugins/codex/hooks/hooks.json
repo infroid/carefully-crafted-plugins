@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v codex >/dev/null 2>&1 || echo '[codex-bridge] codex CLI not found on PATH. Run /codex:setup for install instructions.'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r 'if (.tool_input.command // \"\") | test(\"codex[[:space:]]+exec\") then \"[codex-bridge] invoking codex exec\" else empty end' 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
