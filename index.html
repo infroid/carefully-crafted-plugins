@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>carefully-crafted-plugins - bridges between coding agents</title>
+    <meta
+      name="description"
+      content="A Claude Code marketplace of bridge plugins for delegating work to Codex, Gemini, and Cursor through a structured 5-section handoff spec."
+    />
+    <link rel="icon" type="image/png" href="assets/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --cream: #f2efe8;
+        --paper: #fbf8f1;
+        --paper-soft: #f7f2e9;
+        --terracotta: #cc785c;
+        --terracotta-deep: #af6046;
+        --ink: #1f1b17;
+        --stone: #766e67;
+        --hairline: #dfd7ca;
+        --shadow: 0 24px 70px rgba(58, 47, 39, 0.08);
+        --maxw: 1120px;
+        --gutter: clamp(20px, 4vw, 48px);
+        --radius: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--cream);
+        color: var(--ink);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      code,
+      pre {
+        font-family: "JetBrains Mono", "Source Code Pro", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(242, 239, 232, 0.86);
+        border-bottom: 1px solid var(--hairline);
+        backdrop-filter: saturate(140%) blur(10px);
+        -webkit-backdrop-filter: saturate(140%) blur(10px);
+      }
+
+      .nav__inner {
+        width: min(100%, var(--maxw));
+        margin: 0 auto;
+        padding: 14px var(--gutter);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 22px;
+      }
+
+      .brand,
+      .footer__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      .brand img,
+      .footer__brand img {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+      }
+
+      .nav__links {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+
+      .nav__links a {
+        transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+      }
+
+      .nav__links a:hover {
+        color: var(--terracotta-deep);
+      }
+
+      .nav__github,
+      .button {
+        border: 1px solid var(--ink);
+        border-radius: 999px;
+      }
+
+      .nav__github {
+        padding: 7px 14px;
+        font-size: 14px;
+      }
+
+      .nav__github:hover,
+      .button--ghost:hover {
+        background: var(--ink);
+        color: var(--cream);
+      }
+
+      main {
+        overflow: hidden;
+      }
+
+      .section {
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .hero {
+        padding: 78px var(--gutter) 82px;
+      }
+
+      .hero__inner,
+      .section__inner,
+      .footer__inner {
+        width: min(100%, var(--maxw));
+        margin: 0 auto;
+      }
+
+      .hero__inner {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(300px, 0.88fr);
+        gap: clamp(36px, 6vw, 78px);
+        align-items: center;
+      }
+
+      .eyebrow {
+        margin: 0 0 15px;
+        color: var(--stone);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+        font-weight: 500;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        max-width: 760px;
+        font-size: clamp(44px, 7vw, 82px);
+        line-height: 1.02;
+      }
+
+      h2 {
+        font-size: clamp(31px, 4vw, 50px);
+        line-height: 1.1;
+      }
+
+      h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: -0.005em;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .lede {
+        max-width: 640px;
+        margin-top: 28px;
+        color: #302b26;
+        font-size: clamp(18px, 1.8vw, 20px);
+        line-height: 1.62;
+      }
+
+      .hero__actions {
+        margin-top: 34px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 11px 22px;
+        font-size: 15px;
+        font-weight: 600;
+        transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button--primary {
+        border-color: var(--terracotta);
+        background: var(--terracotta);
+        color: var(--cream);
+      }
+
+      .button--primary:hover {
+        border-color: var(--terracotta-deep);
+        background: var(--terracotta-deep);
+      }
+
+      .button--ghost {
+        background: transparent;
+        color: var(--ink);
+      }
+
+      .hero__art {
+        padding: clamp(10px, 2vw, 18px);
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .hero__art img {
+        width: 100%;
+        border-radius: 10px;
+      }
+
+      .section__inner {
+        padding: 82px var(--gutter);
+      }
+
+      .section__header {
+        max-width: 760px;
+        margin-bottom: 42px;
+      }
+
+      .section__header--center {
+        margin-right: auto;
+        margin-left: auto;
+        text-align: center;
+      }
+
+      .section__summary {
+        max-width: 650px;
+        margin-top: 17px;
+        color: var(--stone);
+        font-size: 18px;
+      }
+
+      .bridges__grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+        gap: 26px;
+        align-items: start;
+      }
+
+      .bridge-note {
+        position: sticky;
+        top: 92px;
+        padding: 24px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: var(--paper);
+      }
+
+      .bridge-note strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 15px;
+      }
+
+      .bridge-note p {
+        color: var(--stone);
+        font-size: 15px;
+        line-height: 1.56;
+      }
+
+      .bridge-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .bridge {
+        display: grid;
+        grid-template-columns: 122px minmax(0, 1fr);
+        gap: 24px;
+        padding: 24px 0;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .bridge:last-child {
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .bridge__status {
+        display: inline-flex;
+        width: fit-content;
+        margin-bottom: 11px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: rgba(204, 120, 92, 0.12);
+        color: var(--terracotta-deep);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .bridge__status--muted {
+        background: rgba(118, 110, 103, 0.12);
+        color: var(--stone);
+      }
+
+      .bridge__name {
+        color: var(--ink);
+        font-family: "JetBrains Mono", "Source Code Pro", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 19px;
+        font-weight: 650;
+      }
+
+      .bridge__body {
+        color: #332d27;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-top: 14px;
+      }
+
+      .chips code,
+      .step code,
+      .install__note code {
+        border: 1px solid var(--hairline);
+        border-radius: 7px;
+        background: var(--paper);
+        color: var(--ink);
+        font-size: 12.5px;
+      }
+
+      .chips code {
+        padding: 4px 8px;
+      }
+
+      .handoff__layout {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .step {
+        min-width: 0;
+        padding: 22px 18px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: var(--paper);
+      }
+
+      .step__num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        margin-bottom: 16px;
+        border-radius: 50%;
+        background: var(--terracotta);
+        color: var(--cream);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .step p {
+        margin-top: 9px;
+        color: var(--stone);
+        font-size: 14.5px;
+        line-height: 1.5;
+      }
+
+      .step code,
+      .install__note code {
+        padding: 1px 6px;
+      }
+
+      .install__panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
+        gap: 28px;
+        align-items: start;
+      }
+
+      .command-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .command {
+        min-width: 0;
+        padding: 20px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: var(--paper);
+      }
+
+      .command span {
+        display: block;
+        margin-bottom: 11px;
+        color: var(--stone);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      pre {
+        max-width: 100%;
+        margin: 0;
+        padding: 15px 16px;
+        overflow-wrap: anywhere;
+        border-radius: 10px;
+        background: var(--ink);
+        color: var(--cream);
+        font-size: 13.5px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      pre code {
+        color: inherit;
+        font-size: inherit;
+      }
+
+      .install__note {
+        padding: 24px;
+        border: 1px solid var(--hairline);
+        border-radius: var(--radius);
+        background: var(--paper-soft);
+        color: var(--stone);
+      }
+
+      .install__note strong {
+        display: block;
+        margin-bottom: 10px;
+        color: var(--ink);
+        font-size: 16px;
+      }
+
+      .footer {
+        padding: 34px var(--gutter);
+      }
+
+      .footer__inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .footer__copy {
+        color: var(--stone);
+        font-size: 13.5px;
+      }
+
+      .footer__copy a {
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      @media (max-width: 960px) {
+        .hero__inner,
+        .bridges__grid,
+        .install__panel {
+          grid-template-columns: 1fr;
+        }
+
+        .hero {
+          padding-top: 54px;
+        }
+
+        .hero__art {
+          order: -1;
+        }
+
+        .bridge-note {
+          position: static;
+        }
+
+        .handoff__layout {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 660px) {
+        body {
+          font-size: 16px;
+        }
+
+        .nav__links a:not(.nav__github) {
+          display: none;
+        }
+
+        .brand span {
+          max-width: 210px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .hero,
+        .section__inner {
+          padding-right: var(--gutter);
+          padding-left: var(--gutter);
+        }
+
+        .hero {
+          padding-bottom: 64px;
+        }
+
+        .section__inner {
+          padding-top: 66px;
+          padding-bottom: 66px;
+        }
+
+        .bridge {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .handoff__layout {
+          grid-template-columns: 1fr;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .footer__inner {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="nav__inner">
+        <a class="brand" href="#top" aria-label="carefully-crafted-plugins home">
+          <img src="assets/logo.png" alt="" width="32" height="32" />
+          <span>carefully-crafted-plugins</span>
+        </a>
+        <nav class="nav__links" aria-label="Primary">
+          <a href="#bridges">Bridges</a>
+          <a href="#handoff">Handoff</a>
+          <a href="#install">Install</a>
+          <a class="nav__github" href="https://github.com/raiaman15/carefully-crafted-plugins">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero section" aria-labelledby="hero-heading">
+        <div class="hero__inner">
+          <div>
+            <p class="eyebrow">Claude Code marketplace</p>
+            <h1 id="hero-heading">Bridge work to the right coding agent.</h1>
+            <p class="lede">
+              carefully-crafted-plugins lets a Claude Code session delegate work to Codex,
+              Gemini, or Cursor through the same structured 5-section handoff spec.
+              Context, constraints, and output expectations travel with every request.
+            </p>
+            <div class="hero__actions">
+              <a class="button button--primary" href="#install">Install codex</a>
+              <a class="button button--ghost" href="#handoff">See the handoff</a>
+            </div>
+          </div>
+          <div class="hero__art" aria-hidden="true">
+            <img src="assets/hero.png" alt="" width="1672" height="941" />
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="bridges" aria-labelledby="bridges-heading">
+        <div class="section__inner">
+          <div class="section__header">
+            <p class="eyebrow">Bridge plugins</p>
+            <h2 id="bridges-heading">One contract, different engines.</h2>
+            <p class="section__summary">
+              Start with Codex today. The same pattern leaves room for Gemini and Cursor
+              without changing how you brief, constrain, or collect delegated work.
+            </p>
+          </div>
+
+          <div class="bridges__grid">
+            <aside class="bridge-note">
+              <strong>What stays consistent</strong>
+              <p>
+                Each bridge writes an auditable Markdown spec, points the external agent at
+                that file, and keeps project standards grounded in this repo.
+              </p>
+            </aside>
+
+            <div class="bridge-list">
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status">Available</span>
+                  <div class="bridge__name">codex</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    Delegate image generation, hard-reasoning offload, browser checks, and
+                    raw Codex CLI execution when Codex is the stronger tool for the task.
+                  </p>
+                  <div class="chips" aria-label="Codex commands">
+                    <code>/codex:image</code>
+                    <code>/codex:reason</code>
+                    <code>/codex:browser</code>
+                    <code>/codex:exec</code>
+                  </div>
+                </div>
+              </article>
+
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status bridge__status--muted">Coming soon</span>
+                  <div class="bridge__name">gemini</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    Route repo-wide analysis, long-context reviews, PDFs, screenshots, and
+                    Google-ecosystem work through the same 5-section handoff.
+                  </p>
+                  <div class="chips" aria-label="Gemini commands">
+                    <code>/gemini:delegate</code>
+                  </div>
+                </div>
+              </article>
+
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status bridge__status--muted">Coming soon</span>
+                  <div class="bridge__name">cursor</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    Send diff-aware refactors and IDE-grounded editing tasks to Cursor while
+                    preserving the same constraints and output format.
+                  </p>
+                  <div class="chips" aria-label="Cursor commands">
+                    <code>/cursor:delegate</code>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="handoff" aria-labelledby="handoff-heading">
+        <div class="section__inner">
+          <div class="section__header section__header--center">
+            <p class="eyebrow">The handoff</p>
+            <h2 id="handoff-heading">Five sections, no surprise context loss.</h2>
+            <p class="section__summary">
+              Claude Code resolves ambiguity before the external agent runs. The final spec
+              is explicit, reviewable, and stored on disk.
+            </p>
+          </div>
+
+          <div class="handoff__layout">
+            <article class="step">
+              <span class="step__num">1</span>
+              <h3>What to do</h3>
+              <p>The role and task, expanded from your request.</p>
+            </article>
+            <article class="step">
+              <span class="step__num">2</span>
+              <h3>How to do</h3>
+              <p>Numbered steps or open-ended delegation.</p>
+            </article>
+            <article class="step">
+              <span class="step__num">3</span>
+              <h3>Constraints</h3>
+              <p>Links to repo standards like code style, design, and security.</p>
+            </article>
+            <article class="step">
+              <span class="step__num">4</span>
+              <h3>Output</h3>
+              <p>Expected format, artifact path, and success criteria.</p>
+            </article>
+            <article class="step">
+              <span class="step__num">5</span>
+              <h3>Clarifications</h3>
+              <p>Open questions resolved before delegation starts.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="install" aria-labelledby="install-heading">
+        <div class="section__inner">
+          <div class="section__header">
+            <p class="eyebrow">Install</p>
+            <h2 id="install-heading">Three commands in Claude Code.</h2>
+          </div>
+
+          <div class="install__panel">
+            <div class="command-stack">
+              <div class="command">
+                <span>1. Add the marketplace</span>
+                <pre><code>/plugin marketplace add https://github.com/raiaman15/carefully-crafted-plugins</code></pre>
+              </div>
+              <div class="command">
+                <span>2. Install the bridge</span>
+                <pre><code>/plugin install codex@carefully-crafted-plugins</code></pre>
+              </div>
+              <div class="command">
+                <span>3. Scaffold standards</span>
+                <pre><code>/codex:setup</code></pre>
+              </div>
+            </div>
+
+            <p class="install__note">
+              <strong>What setup creates</strong>
+              Starter Markdown files under
+              <code>docs/carefully-crafted-plugins/{constraints,output-formats}/</code>
+              so each project can encode its own standards once and reuse them across
+              every bridge.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__inner">
+        <div class="footer__brand">
+          <img src="assets/logo.png" alt="" width="32" height="32" />
+          <span>carefully-crafted-plugins</span>
+        </div>
+        <p class="footer__copy">
+          MIT licensed | Built by <a href="https://github.com/raiaman15">Aman Rai</a> |
+          Plugins for Claude Code
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

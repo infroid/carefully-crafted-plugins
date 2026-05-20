@@ -10,9 +10,9 @@ You are about to delegate an image-generation task to Codex's built-in
 images.
 
 We use Codex's image-generation capability **as-is**. Codex's skill knows how
-to call `gpt-image-2`, how to handle post-processing, and where to write the
-output file. Our job is to give it a clear, evocative visual description
-that respects the user's design language — then get out of the way.
+to call `gpt-image-2` and where to write the output file. Our job is to give
+it a clear, evocative visual description that respects the user's design
+language — then get out of the way.
 
 Follow these four steps.
 
@@ -71,8 +71,7 @@ CODEX_TIMEOUT_SEC=180 \
 ```
 
 The spec is written to disk for audit. Codex reads it, then runs its
-`$imagegen` skill to produce the image at the artifact path. Codex's skill
-handles its own post-processing.
+`$imagegen` skill to produce the image at the artifact path.
 
 ### Iterating on an existing image
 

@@ -66,7 +66,7 @@ commands work:
 
 - Claude Code (recent enough to support plugins + skills)
 - Codex CLI: `npm install -g @openai/codex` or `brew install codex`, then
-  `codex auth`
+  `codex login`
 - Node.js ≥ 20 (for the bridge scripts; pure standard library, no deps)
 
 ## Layout
