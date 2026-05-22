@@ -45,6 +45,73 @@ this. Until then the skill description overpromises.
 
 ## 3. Feature catalogue
 
+### Tier 0 — UX quick wins (low effort, do first)
+
+#### F7. Skills as first-class slash commands with arguments
+
+**Why.** The README advertises `/codex:image <prompt>` etc., but the skills do
+not actually consume arguments — `image`, `reason`, and `browser` are written
+purely as auto-trigger workflow guides and never reference `$ARGUMENTS`. A user
+typing `/codex:image generate a 256x256 icon` has their prompt dropped on the
+floor.
+
+**Good news — no new machinery.** Per Claude Code docs, plugin skills are
+already slash-invocable as `/<plugin>:<skill>`, and `$ARGUMENTS` is
+interpolated into the `SKILL.md` body. Commands have been merged into skills; a
+separate `commands/` directory is **not** needed and would only duplicate
+logic. This keeps it simple, as requested — frontmatter + body edits only.
+
+**Changes (no new files):**
+
+- Add `argument-hint` frontmatter to each user-facing skill:
+  - `image` → `argument-hint: <image generation prompt>`
+  - `reason` → `argument-hint: <problem statement>`
+  - `browser` → `argument-hint: <browser task description>`
+  - `exec` → `argument-hint: <raw prompt for codex>` (already uses `$ARGUMENTS`)
+  - `resume` (from F1) → `argument-hint: <follow-up for the last session>`
+- In each skill body, state explicitly: when invoked as
+  `/codex:<name> <text>`, the user's input arrives as `$ARGUMENTS` — use it as
+  the visual brief / problem statement / task. When the skill auto-triggers
+  from conversation instead, derive the same content from context.
+- `image` / `reason` / `browser` keep `disable-model-invocation` unset
+  (default) so they both auto-trigger **and** accept slash invocation. `exec`
+  keeps `disable-model-invocation: true` (slash-only escape hatch).
+
+**Acceptance.** `/codex:image generate a 256x256 todo icon` runs the image
+workflow with that exact brief; the same skill still auto-triggers from "make
+me an icon".
+
+#### F8. Optimistic first-run setup (remove the explicit setup step)
+
+**Why.** Today `/codex:setup` is a mandatory manual first step. If a user jumps
+straight to `/codex:image`, `spec-builder.mjs` fails because the constraint /
+output-format files do not exist. Setup should be invisible: a quick, one-time,
+automatic scaffold the first time any skill runs in a repo.
+
+**Changes (one new flag, no new files):**
+
+- `setup.mjs`: add an `--ensure` mode.
+  - If `docs/carefully-crafted-plugins/` already exists → exit 0 immediately,
+    printing nothing (or one muted line). No noise on the common path.
+  - If it does not exist → run the existing scaffold, then print one friendly
+    line noting a quick one-time setup just ran.
+  - Still idempotent and non-destructive — never overwrites (unchanged).
+- Each structured skill (`image`, `reason`, `browser`, and `review` from F6)
+  gains a Step 0: run `node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure`
+  before `spec-builder.mjs`. The skill instructs Claude: if setup just
+  scaffolded the tree, tell the user plainly — e.g. "First use of the Codex
+  bridge here; I ran a quick one-time setup (starter standards files under
+  `docs/carefully-crafted-plugins/`, customize anytime)" — then continue with
+  the task **without pausing for approval**. Optimistic: it just happens; the
+  user is informed, not blocked.
+- The `setup` skill (`/codex:setup`) stays for explicit re-runs and
+  customisation; its description is reworded to "optional — skills run this
+  automatically on first use."
+
+**Acceptance.** In a brand-new repo, `/codex:reason …` works on the first try,
+silently scaffolding setup and noting it once; the second invocation prints
+nothing about setup.
+
 ### Tier 1 — core operational gaps
 
 #### F1. Session resume (multi-turn Codex)
@@ -222,9 +289,12 @@ findings against the output-format contract.
 - **Versioning.** Bump `codex` plugin to `1.1.0` in
   `plugins/codex/.claude-plugin/plugin.json` and in
   `.claude-plugin/marketplace.json`; bump marketplace `metadata.version`.
-- **README.md.** Document resume, model/reasoning flags, the sandbox-per-skill
-  table, `--verbose`, and (if F6 ships) the `review` skill and `/codex:review`
-  command.
+- **README.md.** F7 makes the existing `/codex:image <prompt>` slash-command
+  claims actually true — keep them. F8 removes the mandatory "Then run
+  `/codex:setup`" instruction (reword to "setup runs automatically on first
+  use; `/codex:setup` is optional for customising"). Also document resume,
+  model/reasoning flags, the sandbox-per-skill table, `--verbose`, and (if F6
+  ships) the `review` skill and `/codex:review` command.
 - **hooks.json.** No required change. Optionally extend the `PreToolUse` Bash
   matcher note to also recognise `codex exec … resume`.
 - **output-schema.json.** No change needed; the existing schema still applies
@@ -249,9 +319,16 @@ findings against the output-format contract.
   spec header.
 - **Extend `result-handler.test.mjs`** for the F1 optional follow-up log
   appended to the original spec.
+- **Extend `setup.mjs` coverage (F8).** `setup.mjs` currently has no tests.
+  Add a test that `--ensure` scaffolds on a fresh temp repo and is a silent
+  no-op when `docs/carefully-crafted-plugins/` already exists.
 
 ## 6. Suggested sequencing
 
+0. **Phase 0 — UX quick wins.** F7 (`argument-hint` + `$ARGUMENTS` in skill
+   bodies) and F8 (`setup.mjs --ensure` + Step 0 in each skill). Small,
+   low-risk, no new files; immediately improves day-one usability. Safe to
+   ship on its own ahead of everything else.
 1. **Phase 1 — engine.** All `codex-invoke.mjs` changes (F1 resume, F2 model/
    effort, F3 sandbox default, F4 skip-git-check + `--verbose`). Add
    `codex-invoke.test.mjs`. Self-contained, fully testable without touching
@@ -262,7 +339,8 @@ findings against the output-format contract.
    skill + its output-format starter in `setup.mjs`.
 4. **Phase 4 — docs & release.** README, version bumps, final test pass.
 
-Phases 1–2 already close every Tier 1 gap and the §2 defect.
+Phase 0 is independent and shippable immediately. Phases 1–2 close every
+Tier 1 gap and the §2 defect.
 
 ## 7. Risks & open questions
 
