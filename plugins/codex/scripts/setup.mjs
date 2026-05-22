@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// setup.mjs — first-time setup for the Codex bridge.
+// setup.mjs — setup for the Codex bridge.
+//
+// Modes:
+//   (no args)   explicit /codex:setup — full verbose scaffold + summary
+//   --ensure    fast path used by skills on first run — silent no-op when
+//               already configured, otherwise a concise one-time scaffold
 //
 // - Checks codex --version (non-blocking warn if absent)
 // - Scaffolds docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/
@@ -124,6 +129,26 @@ const STARTER = {
 - Follow constraints/code-style.md
 - File should be drop-in usable in the target codebase
 `,
+  "output-formats/code-review.md": `# Output Format: Code Review
+
+<!-- Used by /codex:review. Tune the sections to your team's review style. -->
+
+## Summary
+- One paragraph: overall assessment and whether the change is safe to ship.
+
+## Findings
+For each finding, in priority order:
+- **Severity**: blocker | major | minor | nit
+- **Location**: file path and line(s)
+- **Issue**: what is wrong and why it matters
+- **Suggested fix**: concrete, minimal
+
+## What looks good
+- Brief — call out genuinely solid choices, not filler.
+
+## Open questions
+- Anything the reviewer could not resolve without more context.
+`,
 };
 
 const GITIGNORE_ENTRIES = [
@@ -176,7 +201,38 @@ function updateGitignore() {
   return { appended: toAppend, path: giPath };
 }
 
-function main() {
+function ensureSetup() {
+  // Idempotent path the structured skills run on first use. scaffoldFiles only
+  // creates missing files, so this also backfills starter files introduced in
+  // a later plugin version (e.g. a new output-format).
+  const firstTime = !existsSync(DOCS_ROOT);
+  const { created } = scaffoldFiles();
+  const gi = updateGitignore();
+
+  if (created.length === 0 && gi.appended.length === 0) {
+    console.log("[codex] bridge already set up — nothing to do.");
+    return;
+  }
+
+  console.log(
+    firstTime
+      ? "[codex] First use of the Codex bridge in this repo — ran a quick one-time setup."
+      : "[codex] Codex bridge: added newly available starter file(s).",
+  );
+  if (created.length) console.log(`[codex] Scaffolded ${created.length} starter file(s) under ${DOCS_ROOT}`);
+  if (gi.appended.length) console.log("[codex] Updated .gitignore.");
+  console.log("[codex] Edit docs/carefully-crafted-plugins/{constraints,output-formats}/*.md anytime to encode your standards.");
+
+  if (firstTime) {
+    const codex = checkCodexInstalled();
+    if (!codex.installed) {
+      console.log("[codex] Note: codex CLI not detected — install it before delegating:");
+      console.log("        npm install -g @openai/codex   (or: brew install codex), then: codex login");
+    }
+  }
+}
+
+function explicitSetup() {
   console.log("=== /codex:setup ===");
   console.log(`Repo:  ${REPO_ROOT}`);
   console.log(`Docs:  ${DOCS_ROOT}`);
@@ -216,6 +272,14 @@ function main() {
   console.log("  1. Edit docs/carefully-crafted-plugins/constraints/*.md to encode your standards.");
   console.log("  2. Edit docs/carefully-crafted-plugins/output-formats/*.md to define output contracts.");
   console.log("  3. Try /codex:image or /codex:reason on a real task.");
+}
+
+function main() {
+  if (process.argv.slice(2).includes("--ensure")) {
+    ensureSetup();
+    return;
+  }
+  explicitSetup();
 }
 
 main();

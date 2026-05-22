@@ -1,12 +1,16 @@
 ---
 name: setup
-description: First-time setup for the Codex bridge — verifies Codex CLI is installed, scaffolds the docs/carefully-crafted-plugins/ directory tree with starter constraint and output-format files, and updates .gitignore. Run via /codex:setup.
+description: Optional — re-run or customize Codex bridge setup. The image, reason, and browser skills run setup automatically on first use, so you normally do not need this. Use /codex:setup to re-scaffold or refresh starter files, verify the Codex CLI install, and update .gitignore.
 disable-model-invocation: true
 ---
 
 # Codex Bridge Setup
 
-This skill runs only when the user invokes `/codex:setup` explicitly.
+This skill runs only when the user invokes `/codex:setup` explicitly. It is
+**optional**: the `image`, `reason`, and `browser` skills automatically run a
+quick one-time setup (`setup.mjs --ensure`) the first time they are used in a
+repo. Use `/codex:setup` to re-scaffold, refresh starter files, or check the
+Codex CLI install.
 
 ## What it does
 

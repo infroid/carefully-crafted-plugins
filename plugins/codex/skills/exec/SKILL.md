@@ -2,6 +2,7 @@
 name: exec
 description: Power-user escape hatch — pass any prompt directly to Codex CLI non-interactively without the structured 5-section handoff. Use only when the user explicitly invokes /codex:exec.
 disable-model-invocation: true
+argument-hint: <raw prompt for codex>
 ---
 
 # Codex Raw Passthrough
@@ -18,10 +19,18 @@ When the user runs `/codex:exec <prompt>`:
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --raw "$ARGUMENTS"
 ```
 
+   This runs `--sandbox read-only` by default. If the user's task needs Codex
+   to write files or use the network, add `--sandbox workspace-write` (or
+   `danger-full-access`) — but treat that as a high-impact choice and confirm
+   first, per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`. You may
+   also pass `--model` / `--reasoning-effort` when the user specifies them.
+
 4. Relay Codex's output verbatim to the user. Do not re-interpret or re-format — the user opted into raw mode deliberately.
 
 If the user did not provide any arguments, ask: "What should I pass to Codex?"
 
 ## Reminder
 
-For most tasks, prefer the structured skills (`image`, `reason`, `browser`) — they enforce constraint files, output-format contracts, and pre-flight clarification. `/codex:exec` skips all of that.
+For most tasks, prefer the structured skills (`image`, `reason`, `browser`,
+`review`) — they enforce constraint files, output-format contracts, and
+pre-flight clarification. `/codex:exec` skips all of that.

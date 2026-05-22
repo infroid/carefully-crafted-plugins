@@ -4,19 +4,26 @@ A marketplace of Claude Code plugins that bridge Claude Code to other coding
 agents, so you can stay in your CC session and reach for the strongest tool
 per task.
 
-## What's in v1
+## What's in the marketplace
 
-- **`codex`** — real bridge to OpenAI Codex CLI for capabilities CC can't do
-  natively or where Codex measurably outperforms: raster image generation
-  (`gpt-image-2`), hard-reasoning offload (GPT-5.5), headless browser
-  automation, and a raw `codex exec` escape hatch.
-- **`gemini`** — placeholder (coming soon).
-- **`cursor`** — placeholder (coming soon).
+- **`codex`** — structured bridge to OpenAI Codex CLI for capabilities CC
+  can't do natively or where Codex measurably outperforms: raster image
+  generation (`gpt-image-2`), hard-reasoning offload at high reasoning effort,
+  code review and refactoring, headless browser automation, multi-turn session
+  resume, and a raw `codex exec` escape hatch.
+- **`agy`** — bridge to Google's Antigravity CLI (`agy`, the terminal coding
+  agent that replaced Gemini CLI) for capabilities Claude Code lacks: 1M-token
+  long-context analysis on Gemini 3 Pro, image generation via Nano Banana Pro,
+  and video generation via Veo. A raw passthrough fills any other gap.
+- **`converge`** — meta-orchestrator. Stages a systematic four-phase debate
+  (independent answers → mutual critique → refinement → synthesis) among
+  Claude Code, Codex, and Antigravity on a single hard prompt, then converges
+  on a final response surfacing consensus and remaining disagreements.
 
-## The handoff contract
+## The codex handoff contract
 
-Every delegation produces a **5-section spec** written to
-`docs/carefully-crafted-plugins/handoffs/`:
+The `codex` bridge writes a **5-section spec** to
+`docs/carefully-crafted-plugins/handoffs/` for every delegation:
 
 1. **What to do** — role + task elaboration
 2. **How to do** — numbered steps OR `"Delegate, figure it out."`
@@ -30,6 +37,10 @@ Every delegation produces a **5-section spec** written to
 Codex receives a tiny prompt pointing at the spec file and reads everything
 it needs from disk. No 800KB prompt limit, no opaque handoffs.
 
+The `agy` bridge skips this scaffolding on purpose — Antigravity is itself an
+agent that reads the repo, so `/agy:delegate` just passes a well-framed task
+straight to the CLI.
+
 ## Install
 
 ```bash
@@ -38,35 +49,50 @@ it needs from disk. No 800KB prompt limit, no opaque handoffs.
 /plugin install codex@carefully-crafted-plugins
 ```
 
-Then, in any repo where you want to use the bridge:
+That's it. The first time you use any `codex` skill in a repo, it runs a quick
+one-time setup automatically — scaffolding
+`docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/`
+with starter `.md` files and updating `.gitignore`. You are told once, and the
+task continues without interruption.
 
-```bash
-/codex:setup
-```
-
-This scaffolds `docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/`
-with starter `.md` files, updates `.gitignore`, and checks that `codex` CLI is
-on your PATH.
+To re-scaffold or refresh those starter files later, run `/codex:setup`
+explicitly (optional).
 
 ## Use
 
-Both the skill auto-triggers (CC notices a matching task) and the slash
-commands work:
+Skills both auto-trigger (CC notices a matching task) and work as explicit
+slash commands — the text after the command is passed straight through:
 
 ```
 /codex:image  generate a 256x256 todo app icon
 /codex:reason solve this dynamic programming problem ...
+/codex:review audit src/auth for security bugs
 /codex:browser scrape product titles from https://example.com/store
 /codex:exec   <any raw prompt to codex>
+/codex:resume <follow-up for the most recent Codex session>
+/agy:longcontext audit @src/ and @packages/ for callsites that bypass requireAuth
+/agy:image    generate a 256x256 todo icon using Google's Nano Banana Pro
+/agy:video    generate a 6-second product demo showing the hero feature
+/agy:exec     <any raw prompt to agy>
+/converge:debate should we move auth from session cookies to JWTs?
 ```
 
-`/gemini:delegate` and `/cursor:delegate` print "coming soon."
+Under the hood, `codex-invoke.mjs` selects the model (`--model`), reasoning
+effort (`--reasoning-effort low|medium|high|xhigh`), and sandbox
+(`--sandbox read-only|workspace-write|danger-full-access`, default
+`read-only`). Codex's verbose trace is kept out of CC's context by default;
+pass `--verbose` to stream it.
 
 ## Requirements
 
 - Claude Code (recent enough to support plugins + skills)
-- Codex CLI: `npm install -g @openai/codex` or `brew install codex`, then
-  `codex login`
+- For `codex`: Codex CLI — `npm install -g @openai/codex` or
+  `brew install codex`, then `codex login`
+- For `agy`: Antigravity CLI —
+  `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy`
+  once to sign in
+- For `converge`: both the Codex and Antigravity CLIs above (the debate calls
+  all three agents)
 - Node.js ≥ 20 (for the bridge scripts; pure standard library, no deps)
 
 ## Layout
@@ -76,16 +102,22 @@ commands work:
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{image,reason,browser,exec,setup}/SKILL.md
+│   ├── skills/{image,reason,review,browser,exec,resume,setup}/SKILL.md
+│   ├── reference/critical-evaluation.md
 │   ├── hooks/hooks.json
 │   └── scripts/
 │       ├── spec-builder.mjs     # writes the 5-section spec
-│       ├── codex-invoke.mjs     # wraps `codex exec`
+│       ├── codex-invoke.mjs     # wraps `codex exec` (+ resume, model, sandbox)
 │       ├── result-handler.mjs   # parses output, places artifacts
 │       ├── setup.mjs            # scaffolds user repo
 │       └── output-schema.json
-├── gemini/                      # stub
-└── cursor/                      # stub
+├── agy/
+│   ├── .claude-plugin/plugin.json
+│   ├── skills/{longcontext,image,video,exec}/SKILL.md
+│   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
+└── converge/
+    ├── .claude-plugin/plugin.json
+    └── skills/debate/SKILL.md   # 4-phase multi-agent debate protocol
 tests/unit/                      # node --test, no external deps
 ```
 
