@@ -6,7 +6,7 @@
     <title>carefully-crafted-plugins - bridges between coding agents</title>
     <meta
       name="description"
-      content="A Claude Code marketplace of bridge plugins for delegating work from Claude Code to OpenAI Codex and Google Antigravity."
+      content="A Claude Code marketplace of bridge plugins for delegating work from Claude Code to OpenAI Codex and Google Antigravity, plus a multi-agent converger that debates a prompt across all three."
     />
     <link rel="icon" type="image/png" href="assets/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -622,9 +622,10 @@
             <p class="eyebrow">Bridge plugins</p>
             <h2 id="bridges-heading">One session, different engines.</h2>
             <p class="section__summary">
-              Two bridges today: the structured Codex bridge and a light bridge to
-              Google's Antigravity CLI. Reach for whichever agent is strongest without
-              leaving your Claude Code session.
+              Two bridges and a converger: a structured Codex bridge, a light
+              Antigravity CLI bridge, and a four-phase debate that runs all three
+              together for hard prompts. Reach for whichever fits — without leaving
+              your Claude Code session.
             </p>
           </div>
 
@@ -673,6 +674,24 @@
                     <code>/agy:image</code>
                     <code>/agy:video</code>
                     <code>/agy:exec</code>
+                  </div>
+                </div>
+              </article>
+
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status">Available</span>
+                  <div class="bridge__name">converge</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    Stage a four-phase debate among Claude Code, Codex, and
+                    Antigravity on one hard prompt — independent answers, mutual
+                    critique, refinement, then synthesis. Converges on a final
+                    response that surfaces consensus and remaining disagreements.
+                  </p>
+                  <div class="chips" aria-label="Converge commands">
+                    <code>/converge:debate</code>
                   </div>
                 </div>
               </article>

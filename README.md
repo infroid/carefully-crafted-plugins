@@ -15,6 +15,10 @@ per task.
   agent that replaced Gemini CLI) for capabilities Claude Code lacks: 1M-token
   long-context analysis on Gemini 3 Pro, image generation via Nano Banana Pro,
   and video generation via Veo. A raw passthrough fills any other gap.
+- **`converge`** — meta-orchestrator. Stages a systematic four-phase debate
+  (independent answers → mutual critique → refinement → synthesis) among
+  Claude Code, Codex, and Antigravity on a single hard prompt, then converges
+  on a final response surfacing consensus and remaining disagreements.
 
 ## The codex handoff contract
 
@@ -70,6 +74,7 @@ slash commands — the text after the command is passed straight through:
 /agy:image    generate a 256x256 todo icon using Google's Nano Banana Pro
 /agy:video    generate a 6-second product demo showing the hero feature
 /agy:exec     <any raw prompt to agy>
+/converge:debate should we move auth from session cookies to JWTs?
 ```
 
 Under the hood, `codex-invoke.mjs` selects the model (`--model`), reasoning
@@ -86,12 +91,14 @@ pass `--verbose` to stream it.
 - For `agy`: Antigravity CLI —
   `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy`
   once to sign in
+- For `converge`: both the Codex and Antigravity CLIs above (the debate calls
+  all three agents)
 - Node.js ≥ 20 (for the bridge scripts; pure standard library, no deps)
 
 ## Layout
 
 ```
-.claude-plugin/marketplace.json   # 2 plugins listed
+.claude-plugin/marketplace.json   # 3 plugins listed
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
@@ -104,10 +111,13 @@ plugins/
 │       ├── result-handler.mjs   # parses output, places artifacts
 │       ├── setup.mjs            # scaffolds user repo
 │       └── output-schema.json
-└── agy/
+├── agy/
+│   ├── .claude-plugin/plugin.json
+│   ├── skills/{longcontext,image,video,exec}/SKILL.md
+│   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
+└── converge/
     ├── .claude-plugin/plugin.json
-    ├── skills/{longcontext,image,video,exec}/SKILL.md
-    └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
+    └── skills/debate/SKILL.md   # 4-phase multi-agent debate protocol
 tests/unit/                      # node --test, no external deps
 ```
 

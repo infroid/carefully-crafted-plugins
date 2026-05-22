@@ -5,8 +5,8 @@
     "email": "raiaman15@gmail.com"
   },
   "metadata": {
-    "description": "Bridge plugins connecting Claude Code to external coding agents (OpenAI Codex, Google Antigravity).",
-    "version": "1.3.0"
+    "description": "Plugins connecting Claude Code to external coding agents (OpenAI Codex, Google Antigravity), plus a multi-agent converger that debates a prompt across all three.",
+    "version": "1.4.0"
   },
   "plugins": [
     {
@@ -28,6 +28,16 @@
         "email": "raiaman15@gmail.com"
       },
       "source": "./plugins/agy"
+    },
+    {
+      "name": "converge",
+      "description": "Stage a systematic four-phase debate among Claude Code, OpenAI Codex, and Google Antigravity on a single hard prompt — converging on a synthesized response that surfaces consensus and remaining disagreements.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Aman Rai",
+        "email": "raiaman15@gmail.com"
+      },
+      "source": "./plugins/converge"
     }
   ]
 }
