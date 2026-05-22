@@ -8,9 +8,9 @@ per task.
 
 - **`codex`** — real bridge to OpenAI Codex CLI for capabilities CC can't do
   natively or where Codex measurably outperforms: raster image generation
-  (`gpt-image-2`), hard-reasoning offload (GPT-5.5), code review and
-  refactoring, headless browser automation, multi-turn session resume, and a
-  raw `codex exec` escape hatch.
+  (`gpt-image-2`), hard-reasoning offload at high reasoning effort, code review
+  and refactoring, headless browser automation, multi-turn session resume, and
+  a raw `codex exec` escape hatch.
 - **`gemini`** — placeholder (coming soon).
 - **`cursor`** — placeholder (coming soon).
 

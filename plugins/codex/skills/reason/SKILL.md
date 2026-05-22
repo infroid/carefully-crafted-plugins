@@ -1,12 +1,13 @@
 ---
 name: reason
-description: Use for hard reasoning tasks — complex multi-step logic, math-heavy analysis, algorithmic puzzles, competition-style problems, or anything that would benefit from GPT-5.5 frontier reasoning. Delegates to OpenAI Codex CLI when Claude's reasoning is hitting limits.
+description: Use for hard reasoning tasks — complex multi-step logic, math-heavy analysis, algorithmic puzzles, competition-style problems, or anything that would benefit from Codex's strongest reasoning effort. Delegates to OpenAI Codex CLI when Claude's reasoning is hitting limits.
 argument-hint: <problem statement>
 ---
 
 # Codex Hard-Reasoning Offload
 
-You are about to delegate a reasoning task to Codex CLI (GPT-5.5). Use this when:
+You are about to delegate a reasoning task to Codex CLI at high reasoning
+effort. Use this when:
 
 - A problem requires deep deliberation that exceeds your confidence
 - You've attempted the problem and want a second-opinion solve from a different model
@@ -56,8 +57,8 @@ Codex receives a finalized spec.
 
 ## Step 3: Invoke
 
-Hard reasoning is exactly when to spend Codex's strongest settings — the
-frontier model at high reasoning effort:
+Hard reasoning is exactly when to spend Codex's strongest setting — a high
+reasoning effort:
 
 ```bash
 SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
@@ -73,18 +74,16 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
   --sandbox workspace-write \
-  --model gpt-5.5 \
   --reasoning-effort high
 ```
 
 - `--sandbox workspace-write` lets Codex write the solution to the artifact
   path.
-- `--model gpt-5.5` selects the strongest reasoning model. If Codex reports an
-  unknown model, drop `--model` to fall back to the account default (or check
-  `codex --help`).
 - `--reasoning-effort high` is the default here; use `xhigh` for exceptionally
   hard problems where latency does not matter. If the user named a specific
-  model or effort, use theirs instead.
+  effort, use theirs instead.
+- This runs on the account's default Codex model, which is the right call for
+  most work. Only add `--model <name>` if the user explicitly names one.
 
 ## Step 4: Report
 

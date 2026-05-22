@@ -1,8 +1,10 @@
 # Codex Bridge Enhancement Plan
 
 Status: implemented (Phases 0–4) on branch
-`claude/codex-integration-features-5J3VC`. This document is kept as the design
-record; the risks in §7 still apply (notably: re-verify Codex model names).
+`claude/codex-integration-features-5J3VC`, with a post-implementation
+simplification — skills no longer hardcode a Codex model name (they rely on
+reasoning effort plus the account-default model), and the low-value
+`PreToolUse` hook was removed. Kept as the design record.
 
 ## 1. Motivation
 
