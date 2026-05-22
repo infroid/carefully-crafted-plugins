@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Bridge plugins connecting Claude Code to external coding agents (OpenAI Codex, Google Antigravity).",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "plugins": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "name": "agy",
-      "description": "Delegate coding tasks — multi-file edits, refactors, code review, codebase analysis — to Google's Antigravity CLI (agy).",
-      "version": "1.0.0",
+      "description": "Bridge to Google's Antigravity CLI for capabilities Claude Code lacks: 1M-token long-context analysis (Gemini 3 Pro), Nano Banana Pro image generation, and Veo video generation, plus a raw passthrough.",
+      "version": "1.1.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"

@@ -11,9 +11,10 @@ per task.
   generation (`gpt-image-2`), hard-reasoning offload at high reasoning effort,
   code review and refactoring, headless browser automation, multi-turn session
   resume, and a raw `codex exec` escape hatch.
-- **`agy`** — light bridge to Google's Antigravity CLI (`agy`), the terminal
-  coding agent that replaced Gemini CLI, for delegating coding tasks:
-  multi-file edits, refactors, code review, and codebase analysis.
+- **`agy`** — bridge to Google's Antigravity CLI (`agy`, the terminal coding
+  agent that replaced Gemini CLI) for capabilities Claude Code lacks: 1M-token
+  long-context analysis on Gemini 3 Pro, image generation via Nano Banana Pro,
+  and video generation via Veo. A raw passthrough fills any other gap.
 
 ## The codex handoff contract
 
@@ -65,7 +66,10 @@ slash commands — the text after the command is passed straight through:
 /codex:browser scrape product titles from https://example.com/store
 /codex:exec   <any raw prompt to codex>
 /codex:resume <follow-up for the most recent Codex session>
-/agy:delegate refactor the auth module to use async/await
+/agy:longcontext audit @src/ and @packages/ for callsites that bypass requireAuth
+/agy:image    generate a 256x256 todo icon using Google's Nano Banana Pro
+/agy:video    generate a 6-second product demo showing the hero feature
+/agy:exec     <any raw prompt to agy>
 ```
 
 Under the hood, `codex-invoke.mjs` selects the model (`--model`), reasoning
@@ -102,7 +106,7 @@ plugins/
 │       └── output-schema.json
 └── agy/
     ├── .claude-plugin/plugin.json
-    ├── skills/delegate/SKILL.md
+    ├── skills/{longcontext,image,video,exec}/SKILL.md
     └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
 tests/unit/                      # node --test, no external deps
 ```

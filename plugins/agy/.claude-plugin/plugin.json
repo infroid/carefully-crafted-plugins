@@ -1,7 +1,7 @@
 {
   "name": "agy",
-  "version": "1.0.0",
-  "description": "Delegate coding tasks to Google's Antigravity CLI (agy) — multi-file edits, refactors, code review, and codebase analysis — from a Claude Code session.",
+  "version": "1.1.0",
+  "description": "Bridge to Google's Antigravity CLI (agy) for capabilities Claude Code lacks: 1M-token long-context analysis on Gemini 3 Pro, Nano Banana Pro image generation, Veo video generation, plus a raw passthrough.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/raiaman15/carefully-crafted-plugins",
   "keywords": ["antigravity", "agy", "google", "gemini", "bridge", "delegation"]
