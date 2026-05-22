@@ -1,7 +1,0 @@
-{
-  "name": "cursor",
-  "version": "0.0.1",
-  "description": "Bridge from Claude Code to Cursor agent (coming soon).",
-  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
-  "keywords": ["cursor", "bridge", "coming-soon"]
-}

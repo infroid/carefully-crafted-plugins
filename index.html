@@ -6,7 +6,7 @@
     <title>carefully-crafted-plugins - bridges between coding agents</title>
     <meta
       name="description"
-      content="A Claude Code marketplace of bridge plugins for delegating work to Codex, Gemini, and Cursor through a structured 5-section handoff spec."
+      content="A Claude Code marketplace of bridge plugins for delegating work from Claude Code to OpenAI Codex and Google Antigravity."
     />
     <link rel="icon" type="image/png" href="assets/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -601,9 +601,9 @@
             <p class="eyebrow">Claude Code marketplace</p>
             <h1 id="hero-heading">Bridge work to the right coding agent.</h1>
             <p class="lede">
-              carefully-crafted-plugins lets a Claude Code session delegate work to Codex,
-              Gemini, or Cursor through the same structured 5-section handoff spec.
-              Context, constraints, and output expectations travel with every request.
+              carefully-crafted-plugins lets a Claude Code session delegate work to
+              OpenAI Codex and Google Antigravity — reaching for the strongest tool
+              per task without leaving your terminal.
             </p>
             <div class="hero__actions">
               <a class="button button--primary" href="#install">Install codex</a>
@@ -620,19 +620,20 @@
         <div class="section__inner">
           <div class="section__header">
             <p class="eyebrow">Bridge plugins</p>
-            <h2 id="bridges-heading">One contract, different engines.</h2>
+            <h2 id="bridges-heading">One session, different engines.</h2>
             <p class="section__summary">
-              Start with Codex today. The same pattern leaves room for Gemini and Cursor
-              without changing how you brief, constrain, or collect delegated work.
+              Two bridges today: the structured Codex bridge and a light bridge to
+              Google's Antigravity CLI. Reach for whichever agent is strongest without
+              leaving your Claude Code session.
             </p>
           </div>
 
           <div class="bridges__grid">
             <aside class="bridge-note">
-              <strong>What stays consistent</strong>
+              <strong>One session, the right agent</strong>
               <p>
-                Each bridge writes an auditable Markdown spec, points the external agent at
-                that file, and keeps project standards grounded in this repo.
+                Stay in your Claude Code session and hand a task to whichever external
+                agent is strongest for it — no copying context around by hand.
               </p>
             </aside>
 
@@ -658,32 +659,17 @@
 
               <article class="bridge">
                 <div>
-                  <span class="bridge__status bridge__status--muted">Coming soon</span>
-                  <div class="bridge__name">gemini</div>
+                  <span class="bridge__status">Available</span>
+                  <div class="bridge__name">agy</div>
                 </div>
                 <div>
                   <p class="bridge__body">
-                    Route repo-wide analysis, long-context reviews, PDFs, screenshots, and
-                    Google-ecosystem work through the same 5-section handoff.
+                    Delegate multi-file edits, refactors, code review, and codebase
+                    analysis to Google's Antigravity CLI — the terminal coding agent
+                    that replaced Gemini CLI.
                   </p>
-                  <div class="chips" aria-label="Gemini commands">
-                    <code>/gemini:delegate</code>
-                  </div>
-                </div>
-              </article>
-
-              <article class="bridge">
-                <div>
-                  <span class="bridge__status bridge__status--muted">Coming soon</span>
-                  <div class="bridge__name">cursor</div>
-                </div>
-                <div>
-                  <p class="bridge__body">
-                    Send diff-aware refactors and IDE-grounded editing tasks to Cursor while
-                    preserving the same constraints and output format.
-                  </p>
-                  <div class="chips" aria-label="Cursor commands">
-                    <code>/cursor:delegate</code>
+                  <div class="chips" aria-label="Antigravity commands">
+                    <code>/agy:delegate</code>
                   </div>
                 </div>
               </article>

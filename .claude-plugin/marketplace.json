@@ -5,8 +5,8 @@
     "email": "raiaman15@gmail.com"
   },
   "metadata": {
-    "description": "Bridge plugins connecting Claude Code to external coding agents (Codex, Gemini, Cursor).",
-    "version": "1.1.0"
+    "description": "Bridge plugins connecting Claude Code to external coding agents (OpenAI Codex, Google Antigravity).",
+    "version": "1.2.0"
   },
   "plugins": [
     {
@@ -20,24 +20,14 @@
       "source": "./plugins/codex"
     },
     {
-      "name": "gemini",
-      "description": "Gemini bridge (coming soon).",
-      "version": "0.0.1",
+      "name": "agy",
+      "description": "Delegate coding tasks — multi-file edits, refactors, code review, codebase analysis — to Google's Antigravity CLI (agy).",
+      "version": "1.0.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
       },
-      "source": "./plugins/gemini"
-    },
-    {
-      "name": "cursor",
-      "description": "Cursor bridge (coming soon).",
-      "version": "0.0.1",
-      "author": {
-        "name": "Aman Rai",
-        "email": "raiaman15@gmail.com"
-      },
-      "source": "./plugins/cursor"
+      "source": "./plugins/agy"
     }
   ]
 }

@@ -4,20 +4,21 @@ A marketplace of Claude Code plugins that bridge Claude Code to other coding
 agents, so you can stay in your CC session and reach for the strongest tool
 per task.
 
-## What's in v1
+## What's in the marketplace
 
-- **`codex`** — real bridge to OpenAI Codex CLI for capabilities CC can't do
-  natively or where Codex measurably outperforms: raster image generation
-  (`gpt-image-2`), hard-reasoning offload at high reasoning effort, code review
-  and refactoring, headless browser automation, multi-turn session resume, and
-  a raw `codex exec` escape hatch.
-- **`gemini`** — placeholder (coming soon).
-- **`cursor`** — placeholder (coming soon).
+- **`codex`** — structured bridge to OpenAI Codex CLI for capabilities CC
+  can't do natively or where Codex measurably outperforms: raster image
+  generation (`gpt-image-2`), hard-reasoning offload at high reasoning effort,
+  code review and refactoring, headless browser automation, multi-turn session
+  resume, and a raw `codex exec` escape hatch.
+- **`agy`** — light bridge to Google's Antigravity CLI (`agy`), the terminal
+  coding agent that replaced Gemini CLI, for delegating coding tasks:
+  multi-file edits, refactors, code review, and codebase analysis.
 
-## The handoff contract
+## The codex handoff contract
 
-Every delegation produces a **5-section spec** written to
-`docs/carefully-crafted-plugins/handoffs/`:
+The `codex` bridge writes a **5-section spec** to
+`docs/carefully-crafted-plugins/handoffs/` for every delegation:
 
 1. **What to do** — role + task elaboration
 2. **How to do** — numbered steps OR `"Delegate, figure it out."`
@@ -30,6 +31,10 @@ Every delegation produces a **5-section spec** written to
 
 Codex receives a tiny prompt pointing at the spec file and reads everything
 it needs from disk. No 800KB prompt limit, no opaque handoffs.
+
+The `agy` bridge skips this scaffolding on purpose — Antigravity is itself an
+agent that reads the repo, so `/agy:delegate` just passes a well-framed task
+straight to the CLI.
 
 ## Install
 
@@ -60,9 +65,8 @@ slash commands — the text after the command is passed straight through:
 /codex:browser scrape product titles from https://example.com/store
 /codex:exec   <any raw prompt to codex>
 /codex:resume <follow-up for the most recent Codex session>
+/agy:delegate refactor the auth module to use async/await
 ```
-
-`/gemini:delegate` and `/cursor:delegate` print "coming soon."
 
 Under the hood, `codex-invoke.mjs` selects the model (`--model`), reasoning
 effort (`--reasoning-effort low|medium|high|xhigh`), and sandbox
@@ -73,14 +77,17 @@ pass `--verbose` to stream it.
 ## Requirements
 
 - Claude Code (recent enough to support plugins + skills)
-- Codex CLI: `npm install -g @openai/codex` or `brew install codex`, then
-  `codex login`
+- For `codex`: Codex CLI — `npm install -g @openai/codex` or
+  `brew install codex`, then `codex login`
+- For `agy`: Antigravity CLI —
+  `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy`
+  once to sign in
 - Node.js ≥ 20 (for the bridge scripts; pure standard library, no deps)
 
 ## Layout
 
 ```
-.claude-plugin/marketplace.json   # 3 plugins listed
+.claude-plugin/marketplace.json   # 2 plugins listed
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
@@ -93,8 +100,10 @@ plugins/
 │       ├── result-handler.mjs   # parses output, places artifacts
 │       ├── setup.mjs            # scaffolds user repo
 │       └── output-schema.json
-├── gemini/                      # stub
-└── cursor/                      # stub
+└── agy/
+    ├── .claude-plugin/plugin.json
+    ├── skills/delegate/SKILL.md
+    └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
 tests/unit/                      # node --test, no external deps
 ```
 

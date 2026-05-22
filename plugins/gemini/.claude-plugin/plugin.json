@@ -1,7 +1,0 @@
-{
-  "name": "gemini",
-  "version": "0.0.1",
-  "description": "Bridge from Claude Code to Google Gemini CLI (coming soon).",
-  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
-  "keywords": ["gemini", "google", "bridge", "coming-soon"]
-}

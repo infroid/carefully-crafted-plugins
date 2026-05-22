@@ -1,0 +1,8 @@
+{
+  "name": "agy",
+  "version": "1.0.0",
+  "description": "Delegate coding tasks to Google's Antigravity CLI (agy) — multi-file edits, refactors, code review, and codebase analysis — from a Claude Code session.",
+  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
+  "homepage": "https://github.com/raiaman15/carefully-crafted-plugins",
+  "keywords": ["antigravity", "agy", "google", "gemini", "bridge", "delegation"]
+}
