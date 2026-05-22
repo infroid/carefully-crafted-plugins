@@ -65,8 +65,16 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
   --artifact-path "docs/carefully-crafted-plugins/output/<slug>.<ext>" \
   --clarifications "<summary>")
 
-node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --spec-path "$SPEC_PATH"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
+  --spec-path "$SPEC_PATH" \
+  --sandbox workspace-write \
+  --reasoning-effort medium
 ```
+
+`--sandbox workspace-write` lets Codex save scrape output and screenshots to
+the artifact path; `--reasoning-effort medium` is enough for scripted
+automation. If the target involves auth or untrusted pages, also reference
+`security.md` in the spec's constraints.
 
 ## Step 4: Report
 
@@ -76,4 +84,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/result-handler.mjs \
   --type text
 ```
 
-Report artifact path and any non-obvious findings to the user.
+Report the artifact path and any non-obvious findings to the user, then apply
+`${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md` before relaying
+results.

@@ -8,8 +8,9 @@ per task.
 
 - **`codex`** — real bridge to OpenAI Codex CLI for capabilities CC can't do
   natively or where Codex measurably outperforms: raster image generation
-  (`gpt-image-2`), hard-reasoning offload (GPT-5.5), headless browser
-  automation, and a raw `codex exec` escape hatch.
+  (`gpt-image-2`), hard-reasoning offload (GPT-5.5), code review and
+  refactoring, headless browser automation, multi-turn session resume, and a
+  raw `codex exec` escape hatch.
 - **`gemini`** — placeholder (coming soon).
 - **`cursor`** — placeholder (coming soon).
 
@@ -49,17 +50,25 @@ explicitly (optional).
 
 ## Use
 
-Both the skill auto-triggers (CC notices a matching task) and the slash
-commands work:
+Skills both auto-trigger (CC notices a matching task) and work as explicit
+slash commands — the text after the command is passed straight through:
 
 ```
 /codex:image  generate a 256x256 todo app icon
 /codex:reason solve this dynamic programming problem ...
+/codex:review audit src/auth for security bugs
 /codex:browser scrape product titles from https://example.com/store
 /codex:exec   <any raw prompt to codex>
+/codex:resume <follow-up for the most recent Codex session>
 ```
 
 `/gemini:delegate` and `/cursor:delegate` print "coming soon."
+
+Under the hood, `codex-invoke.mjs` selects the model (`--model`), reasoning
+effort (`--reasoning-effort low|medium|high|xhigh`), and sandbox
+(`--sandbox read-only|workspace-write|danger-full-access`, default
+`read-only`). Codex's verbose trace is kept out of CC's context by default;
+pass `--verbose` to stream it.
 
 ## Requirements
 
@@ -75,11 +84,12 @@ commands work:
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{image,reason,browser,exec,setup}/SKILL.md
+│   ├── skills/{image,reason,review,browser,exec,resume,setup}/SKILL.md
+│   ├── reference/critical-evaluation.md
 │   ├── hooks/hooks.json
 │   └── scripts/
 │       ├── spec-builder.mjs     # writes the 5-section spec
-│       ├── codex-invoke.mjs     # wraps `codex exec`
+│       ├── codex-invoke.mjs     # wraps `codex exec` (+ resume, model, sandbox)
 │       ├── result-handler.mjs   # parses output, places artifacts
 │       ├── setup.mjs            # scaffolds user repo
 │       └── output-schema.json

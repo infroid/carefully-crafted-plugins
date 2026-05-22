@@ -129,6 +129,26 @@ const STARTER = {
 - Follow constraints/code-style.md
 - File should be drop-in usable in the target codebase
 `,
+  "output-formats/code-review.md": `# Output Format: Code Review
+
+<!-- Used by /codex:review. Tune the sections to your team's review style. -->
+
+## Summary
+- One paragraph: overall assessment and whether the change is safe to ship.
+
+## Findings
+For each finding, in priority order:
+- **Severity**: blocker | major | minor | nit
+- **Location**: file path and line(s)
+- **Issue**: what is wrong and why it matters
+- **Suggested fix**: concrete, minimal
+
+## What looks good
+- Brief — call out genuinely solid choices, not filler.
+
+## Open questions
+- Anything the reviewer could not resolve without more context.
+`,
 };
 
 const GITIGNORE_ENTRIES = [
@@ -182,23 +202,33 @@ function updateGitignore() {
 }
 
 function ensureSetup() {
-  // Fast, idempotent path the image/reason/browser skills run on first use.
-  if (existsSync(DOCS_ROOT)) {
+  // Idempotent path the structured skills run on first use. scaffoldFiles only
+  // creates missing files, so this also backfills starter files introduced in
+  // a later plugin version (e.g. a new output-format).
+  const firstTime = !existsSync(DOCS_ROOT);
+  const { created } = scaffoldFiles();
+  const gi = updateGitignore();
+
+  if (created.length === 0 && gi.appended.length === 0) {
     console.log("[codex] bridge already set up — nothing to do.");
     return;
   }
 
-  console.log("[codex] First use of the Codex bridge in this repo — running a quick one-time setup.");
-  const { created } = scaffoldFiles();
-  const gi = updateGitignore();
-  console.log(`[codex] Scaffolded ${created.length} starter file(s) under ${DOCS_ROOT}`);
+  console.log(
+    firstTime
+      ? "[codex] First use of the Codex bridge in this repo — ran a quick one-time setup."
+      : "[codex] Codex bridge: added newly available starter file(s).",
+  );
+  if (created.length) console.log(`[codex] Scaffolded ${created.length} starter file(s) under ${DOCS_ROOT}`);
   if (gi.appended.length) console.log("[codex] Updated .gitignore.");
   console.log("[codex] Edit docs/carefully-crafted-plugins/{constraints,output-formats}/*.md anytime to encode your standards.");
 
-  const codex = checkCodexInstalled();
-  if (!codex.installed) {
-    console.log("[codex] Note: codex CLI not detected — install it before delegating:");
-    console.log("        npm install -g @openai/codex   (or: brew install codex), then: codex login");
+  if (firstTime) {
+    const codex = checkCodexInstalled();
+    if (!codex.installed) {
+      console.log("[codex] Note: codex CLI not detected — install it before delegating:");
+      console.log("        npm install -g @openai/codex   (or: brew install codex), then: codex login");
+    }
   }
 }
 

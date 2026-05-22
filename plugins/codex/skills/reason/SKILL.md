@@ -56,6 +56,9 @@ Codex receives a finalized spec.
 
 ## Step 3: Invoke
 
+Hard reasoning is exactly when to spend Codex's strongest settings — the
+frontier model at high reasoning effort:
+
 ```bash
 SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
   --task-slug "<slug>" \
@@ -67,8 +70,21 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
   --artifact-path "docs/carefully-crafted-plugins/output/<slug>.<ext>" \
   --clarifications "<summary>")
 
-node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --spec-path "$SPEC_PATH"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
+  --spec-path "$SPEC_PATH" \
+  --sandbox workspace-write \
+  --model gpt-5.5 \
+  --reasoning-effort high
 ```
+
+- `--sandbox workspace-write` lets Codex write the solution to the artifact
+  path.
+- `--model gpt-5.5` selects the strongest reasoning model. If Codex reports an
+  unknown model, drop `--model` to fall back to the account default (or check
+  `codex --help`).
+- `--reasoning-effort high` is the default here; use `xhigh` for exceptionally
+  hard problems where latency does not matter. If the user named a specific
+  model or effort, use theirs instead.
 
 ## Step 4: Report
 
@@ -78,4 +94,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/result-handler.mjs \
   --type text
 ```
 
-Summarize Codex's solution, then critically evaluate it yourself before relaying. If Codex's answer disagrees with your prior attempt, surface the disagreement explicitly to the user — don't silently switch.
+Summarize Codex's solution, then apply
+`${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`: evaluate it critically
+before relaying, and if it disagrees with your prior attempt, surface the
+disagreement to the user rather than silently switching.

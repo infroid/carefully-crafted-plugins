@@ -87,11 +87,13 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 CODEX_TIMEOUT_SEC=180 \
   node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
-  --imagegen
+  --imagegen \
+  --sandbox workspace-write
 ```
 
-The spec is written to disk for audit. Codex reads it, then runs its
-`$imagegen` skill to produce the image at the artifact path.
+`--sandbox workspace-write` is required so Codex can write the PNG to the
+artifact path. The spec is written to disk for audit. Codex reads it, then
+runs its `$imagegen` skill to produce the image.
 
 ### Iterating on an existing image
 
@@ -102,7 +104,8 @@ CODEX_TIMEOUT_SEC=180 \
   node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --imagegen \
   --raw "<refinement description>" \
-  --ref "docs/carefully-crafted-plugins/output/images/<previous>.png"
+  --ref "docs/carefully-crafted-plugins/output/images/<previous>.png" \
+  --sandbox workspace-write
 ```
 
 ## Step 4: Report
@@ -114,4 +117,6 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/result-handler.mjs \
 ```
 
 Then summarize for the user: artifact path, any visual choices Codex
-documented, offer next steps (iterate with `--ref`, etc.).
+documented, offer next steps (iterate with `--ref`, etc.). For sandbox
+escalation and error handling, follow
+`${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`.

@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Bridge plugins connecting Claude Code to external coding agents (Codex, Gemini, Cursor).",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Delegate image generation, hard reasoning, browser tasks, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec.",
-      "version": "1.0.0",
+      "description": "Delegate image generation, hard reasoning, code review, browser tasks, session resume, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec.",
+      "version": "1.1.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
