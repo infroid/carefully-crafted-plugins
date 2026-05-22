@@ -1,6 +1,7 @@
 ---
 name: reason
 description: Use for hard reasoning tasks — complex multi-step logic, math-heavy analysis, algorithmic puzzles, competition-style problems, or anything that would benefit from GPT-5.5 frontier reasoning. Delegates to OpenAI Codex CLI when Claude's reasoning is hitting limits.
+argument-hint: <problem statement>
 ---
 
 # Codex Hard-Reasoning Offload
@@ -11,7 +12,26 @@ You are about to delegate a reasoning task to Codex CLI (GPT-5.5). Use this when
 - You've attempted the problem and want a second-opinion solve from a different model
 - The user explicitly asks for the "strongest" or "frontier" reasoning available
 
-Follow these four steps in order.
+## Your input
+
+When invoked as `/codex:reason <prompt>`, the user's text arrives as
+`$ARGUMENTS` — treat it as the problem statement that becomes the **Task** in
+Step 1. When this skill auto-triggers from conversation instead, assemble the
+same problem statement from the surrounding context.
+
+## Step 0: Ensure the bridge is set up
+
+Run this first. It is a fast, idempotent no-op once the repo is configured:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
+```
+
+If it reports a first-time setup, tell the user in one plain line — e.g.
+"First use of the Codex bridge here, so I ran a quick one-time setup; starter
+standards files are under `docs/carefully-crafted-plugins/`, customize them
+anytime" — then continue. Do not pause for approval: the scaffold is safe and
+never overwrites existing files.
 
 ## Step 1: Draft sections 1–4 of the handoff spec
 

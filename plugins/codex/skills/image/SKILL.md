@@ -1,6 +1,7 @@
 ---
 name: image
 description: Use for image generation, icon creation, raster graphics, illustrations, hero images, mockups, screenshots-as-output, photos, logos, or any visual asset production. Delegates to OpenAI Codex CLI which routes the request through its built-in `$imagegen` skill (gpt-image-2).
+argument-hint: <image generation prompt>
 ---
 
 # Codex Image Generation
@@ -14,7 +15,26 @@ to call `gpt-image-2` and where to write the output file. Our job is to give
 it a clear, evocative visual description that respects the user's design
 language — then get out of the way.
 
-Follow these four steps.
+## Your input
+
+When invoked as `/codex:image <prompt>`, the user's text arrives as
+`$ARGUMENTS` — treat it as the visual brief that becomes the **Task** in
+Step 1. When this skill auto-triggers from conversation instead, derive the
+same brief from the surrounding context.
+
+## Step 0: Ensure the bridge is set up
+
+Run this first. It is a fast, idempotent no-op once the repo is configured:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
+```
+
+If it reports a first-time setup, tell the user in one plain line — e.g.
+"First use of the Codex bridge here, so I ran a quick one-time setup; starter
+standards files are under `docs/carefully-crafted-plugins/`, customize them
+anytime" — then continue. Do not pause for approval: the scaffold is safe and
+never overwrites existing files.
 
 ## Step 1: Draft sections 1–4 of the handoff spec
 

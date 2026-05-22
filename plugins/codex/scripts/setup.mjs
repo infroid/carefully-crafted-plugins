@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// setup.mjs — first-time setup for the Codex bridge.
+// setup.mjs — setup for the Codex bridge.
+//
+// Modes:
+//   (no args)   explicit /codex:setup — full verbose scaffold + summary
+//   --ensure    fast path used by skills on first run — silent no-op when
+//               already configured, otherwise a concise one-time scaffold
 //
 // - Checks codex --version (non-blocking warn if absent)
 // - Scaffolds docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/
@@ -176,7 +181,28 @@ function updateGitignore() {
   return { appended: toAppend, path: giPath };
 }
 
-function main() {
+function ensureSetup() {
+  // Fast, idempotent path the image/reason/browser skills run on first use.
+  if (existsSync(DOCS_ROOT)) {
+    console.log("[codex] bridge already set up — nothing to do.");
+    return;
+  }
+
+  console.log("[codex] First use of the Codex bridge in this repo — running a quick one-time setup.");
+  const { created } = scaffoldFiles();
+  const gi = updateGitignore();
+  console.log(`[codex] Scaffolded ${created.length} starter file(s) under ${DOCS_ROOT}`);
+  if (gi.appended.length) console.log("[codex] Updated .gitignore.");
+  console.log("[codex] Edit docs/carefully-crafted-plugins/{constraints,output-formats}/*.md anytime to encode your standards.");
+
+  const codex = checkCodexInstalled();
+  if (!codex.installed) {
+    console.log("[codex] Note: codex CLI not detected — install it before delegating:");
+    console.log("        npm install -g @openai/codex   (or: brew install codex), then: codex login");
+  }
+}
+
+function explicitSetup() {
   console.log("=== /codex:setup ===");
   console.log(`Repo:  ${REPO_ROOT}`);
   console.log(`Docs:  ${DOCS_ROOT}`);
@@ -216,6 +242,14 @@ function main() {
   console.log("  1. Edit docs/carefully-crafted-plugins/constraints/*.md to encode your standards.");
   console.log("  2. Edit docs/carefully-crafted-plugins/output-formats/*.md to define output contracts.");
   console.log("  3. Try /codex:image or /codex:reason on a real task.");
+}
+
+function main() {
+  if (process.argv.slice(2).includes("--ensure")) {
+    ensureSetup();
+    return;
+  }
+  explicitSetup();
 }
 
 main();

@@ -1,6 +1,7 @@
 ---
 name: browser
 description: Use for headless browser automation, web scraping, page screenshots, form filling, end-to-end test execution, or any task requiring a real Chromium runtime. Delegates to OpenAI Codex CLI which ships a Playwright skill.
+argument-hint: <browser task description>
 ---
 
 # Codex Browser Delegation
@@ -14,7 +15,26 @@ Note: Claude Code can also drive headless Chrome via the `claude-in-chrome` MCP.
 - Bulk scraping where Codex's sandbox is preferable
 - The user explicitly asked to delegate to Codex
 
-Follow these four steps.
+## Your input
+
+When invoked as `/codex:browser <task>`, the user's text arrives as
+`$ARGUMENTS` — treat it as the browser task that becomes the **Task** in
+Step 1. When this skill auto-triggers from conversation instead, assemble the
+same task description from the surrounding context.
+
+## Step 0: Ensure the bridge is set up
+
+Run this first. It is a fast, idempotent no-op once the repo is configured:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
+```
+
+If it reports a first-time setup, tell the user in one plain line — e.g.
+"First use of the Codex bridge here, so I ran a quick one-time setup; starter
+standards files are under `docs/carefully-crafted-plugins/`, customize them
+anytime" — then continue. Do not pause for approval: the scaffold is safe and
+never overwrites existing files.
 
 ## Step 1: Draft sections 1–4 of the handoff spec
 

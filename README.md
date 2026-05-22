@@ -38,15 +38,14 @@ it needs from disk. No 800KB prompt limit, no opaque handoffs.
 /plugin install codex@carefully-crafted-plugins
 ```
 
-Then, in any repo where you want to use the bridge:
+That's it. The first time you use any `codex` skill in a repo, it runs a quick
+one-time setup automatically — scaffolding
+`docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/`
+with starter `.md` files and updating `.gitignore`. You are told once, and the
+task continues without interruption.
 
-```bash
-/codex:setup
-```
-
-This scaffolds `docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/`
-with starter `.md` files, updates `.gitignore`, and checks that `codex` CLI is
-on your PATH.
+To re-scaffold or refresh those starter files later, run `/codex:setup`
+explicitly (optional).
 
 ## Use
 
