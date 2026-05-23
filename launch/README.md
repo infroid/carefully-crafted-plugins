@@ -1,136 +1,162 @@
 # Launch playbook
 
-Everything needed to ship `converge` (and the underlying `codex` + `agy`
-bridges) onto Hacker News, Dev.to, Twitter/X, and Reddit. ROI-ranked.
+ROI-ranked plan for shipping the marketplace — with `contexthub` (the
+multi-agent converger) as the lead.
 
-## The hook, restated
+## The strategy in one sentence
 
-The marketplace is **bridges + a converger**. For virality the lead is
-`converge` — three frontier models (Claude, GPT-class via Codex, Gemini 3 Pro
-via Antigravity) running a structured 4-phase debate in one terminal. The
-bridges are supporting infrastructure for that story, not the story.
+Lead with **what users get** (a converged answer from three frontier AIs in
+one terminal), not how it works. The mechanism is the dog under the leash;
+the show is the dog.
 
-Do not lead with "another Claude Code plugin." Lead with multi-agent debate.
+## What to sell
 
-## Pre-launch checklist (do these first)
+In order of headline weight:
 
-- [ ] **Record a 15–30 s demo** — see [demo-script.md](./demo-script.md).
-  - asciinema (preferred — text-searchable, lightweight) → svg-term-cli for a
-    crisp SVG/GIF; or Loom/QuickTime → ezgif.com for an MP4→GIF.
-  - This single artifact is cross-leveraged across HN, Dev.to, Twitter,
-    Reddit. Do not skip.
-- [ ] **Verify install actually works** on a clean machine — fresh shell, no
-  caches. The first thing readers will do is try the install command. Any
-  rot kills credibility.
-- [ ] **Star the repo from your own account** (one is better than zero on
-  first impression).
-- [ ] **Pick the launch day**: Tuesday, Wednesday, or Thursday. Avoid Mondays
-  (catch-up day), Fridays (everyone leaves early), and US holidays.
-- [ ] **Pick the launch hour**: 8–10 a.m. US Pacific = 11 a.m.–1 p.m. US
-  Eastern = 4–6 p.m. UK = morning India end-of-day. Optimizes for the global
-  developer waking window.
+1. **One converged answer from three frontier AIs.** Anthropic + OpenAI +
+   Google, in one terminal command. No tab-juggling.
+2. **Structured output you can actually use** — consensus, disagreements,
+   recommendation, decision points, audit trail. An answer *and* the dissent.
+3. **Other capabilities in the same install** — image/video generation,
+   1M-token codebase analysis, frontier-reasoning offload. List them; the
+   marketplace pays off either way.
+4. **(Quietly) The mechanism**, only when asked. One paragraph max in any
+   public artifact. The FAQ has full technical depth for skeptics in
+   comments.
 
-## Launch-day timeline (T-hour = first publish time)
+## What NOT to lead with
 
-| Time | Action | Channel |
+- The 4-phase protocol diagram (keep it; just don't headline it).
+- The honesty rules (still load-bearing, but don't open with them —
+  reads as defensive).
+- Per-call costs / latency math (relevant in FAQ, not lead).
+- "Caveats I owe you up front" preambles (move to FAQ; don't sell on
+  reservation).
+- The build-log narrative ("I got tired of trusting confident AI answers
+  so I built this"). Lead with the destination, not the journey.
+
+## ROI-ranked launch sequence
+
+| Rank | Asset / Action | Why this rank |
 |---|---|---|
-| T+0 min | Publish [article-main.md](./article-main.md) | Dev.to |
-| T+15 min | Confirm Dev.to article is live and the demo embed renders | — |
-| T+30 min | Submit [show-hn.md](./show-hn.md) | Hacker News |
-| T+60 min | Post [twitter-thread.md](./twitter-thread.md) | X / Twitter |
-| T+2 h | Sit at the keyboard. Reply to every substantive HN comment within 15 min for the first 4 hours. This is *the* lever for front-page rank. |
-| T+next day | Post [reddit-claudeai.md](./reddit-claudeai.md) | r/ClaudeAI |
-| T+2 days | Submit article to a Medium publication (Dev Genius, Towards Data Science). Slight reframe: lead with the personal "I built this because…" narrative arc Medium readers prefer. |
-| T+1 week | If HN was a hit, write a follow-up: "What I learned from \<N\> people using converge" with real samples. Re-launch energy. |
+| 1 | **15-second demo (asciinema or MP4)** | Cross-leveraged across every channel. The single highest-leverage artifact. Only you can record it. See [demo-script.md](./demo-script.md). |
+| 2 | **Show HN submission** | Per your framework, the front-page lottery ticket. Cheap to try; see [show-hn.md](./show-hn.md). |
+| 3 | **Dev.to article** | The canonical link HN, Twitter, Reddit all point at. Sustained traffic. See [article-main.md](./article-main.md). |
+| 4 | **Twitter/X thread** | Posts ~1h after HN. Amplifies and brings the AI-eng community in. See [twitter-thread.md](./twitter-thread.md). |
+| 5 | **r/ClaudeAI post** | Targeted audience already using Claude Code. See [reddit-claudeai.md](./reddit-claudeai.md). |
+| 6 | **Medium publication submission** | Dev Genius / Towards Data Science. Longer tail; lower urgency. |
+| 7 | LinkedIn / other subs | Skip unless 1–6 underperform. Low ROI for dev tools. |
 
-## Channel-by-channel playbook
+## Pre-launch checklist
 
-### Hacker News — the lottery ticket
+- [ ] **Record the demo** — see [demo-script.md](./demo-script.md). Use a
+  hard question with a real disagreement in the synthesis, otherwise the
+  demo looks like a generic answer.
+- [ ] **Capture one real synthesis output** to paste into the article and
+  the FAQ. Readers and HN commenters WILL ask "show me a real example";
+  not having one ready loses trust fast.
+- [ ] **Verify install on a clean machine.** First-impression killer if
+  it breaks.
+- [ ] **Star your own repo from your account.** Trivial; one > zero.
+- [ ] **Pick the launch day**: Tue / Wed / Thu. Avoid Mondays, Fridays,
+  US holidays.
+- [ ] **Pick the launch hour**: 8–10 a.m. US Pacific = 11 a.m.–1 p.m.
+  US Eastern. Optimizes the global developer waking window.
 
-Per your framework: front-page hit = 10k+ visitors in hours. Realistically,
-most Show HNs do not hit the front page. Don't bank on it; do everything
-right and accept variance.
+## Launch-day timeline
 
-What actually drives front-page rank:
-- **First 60 minutes of upvotes and substantive comments matter most.** That
-  is the algorithmic crit window.
-- **Author engagement.** Reply quickly, technically, and *honestly*. HN
-  smells defensiveness and hype instantly. Concede where the commenter is
-  right; push back where you have evidence.
-- **Title** matters more than body. Use [show-hn.md](./show-hn.md) verbatim
-  — do not "improve" it on the fly.
+T = first publish time.
 
-Anticipated comments and prepared responses are in
-[hn-faq.md](./hn-faq.md).
+| T+ | Action | Channel |
+|---|---|---|
+| 0 min | Publish [article-main.md](./article-main.md) | Dev.to |
+| +30 min | Submit [show-hn.md](./show-hn.md), link the GitHub repo (HN convention) | Hacker News |
+| +60 min | Post [twitter-thread.md](./twitter-thread.md) with the demo attached | X / Twitter |
+| +2h onward | **Sit at the keyboard.** Reply to every HN comment within 15 min for the first 4 hours. Single biggest lever on front-page rank. See [hn-faq.md](./hn-faq.md) for prepared answers. |
+| +1 day | Post [reddit-claudeai.md](./reddit-claudeai.md) | r/ClaudeAI |
+| +2 days | Submit to Dev Genius or Towards Data Science | Medium (publication, not personal) |
+| +1 week | If HN was a hit, write the follow-up: "What \<N\> people use /contexthub:converge for, and the failure modes I've found." Re-launch energy. |
 
-### Dev.to — the canonical link
+## Engagement rules during the launch window
 
-This is what HN, Twitter, and Reddit will all point at. Make sure:
-- The 15-second demo is at the very top, *above the fold*.
-- Code snippets are copy-pasteable. Test that.
-- Links to the GitHub repo are unmissable (top, middle, bottom).
+- **Reply within 15 minutes** to every substantive HN comment for the first
+  4 hours. This is *the* lever for the front-page algorithm.
+- **Concede where commenters are right.** "You're right about X, I hadn't
+  thought about Y" is the single behaviour that most reliably converts
+  critics into supporters. HN respects this enormously.
+- **Don't argue from authority.** "Let me clarify…" beats "Actually you're
+  missing X" every time.
+- **Match comment length.** Short comments get short replies. Long
+  technical questions get the FAQ-grade answer.
+- **Never ask for upvotes** — auto-flag, kills the post.
+
+## Channel-by-channel notes
+
+### Hacker News
+
+The lottery ticket. Hit rate is low; payoff if you hit is large (10k+
+visitors per the framework). Title and first 60 minutes of upvotes
+dominate. Title in [show-hn.md](./show-hn.md) is tuned — don't "improve"
+it before submitting.
+
+### Dev.to
+
+The canonical link. Make sure:
+- Demo at the top, above the fold.
+- Code snippets copy-pasteable. Test that.
+- GitHub link unmissable (top, middle, bottom).
 - Tags: `#ai`, `#claudecode`, `#openai`, `#opensource`, `#tutorial`.
 
-Cross-post a slight reframe to a Medium publication 2 days later. Don't
-publish on personal Medium — it dies in an empty stream.
+### Twitter / X
 
-### Twitter / X — amplification
+The amplification surface. AI-engineering community lives here. Thread
+does the heavy lifting; the demo is the first hook. Pin the thread for
+7 days.
 
-The AI-engineering community lives here. The thread does the heavy lifting;
-the demo GIF is the first hook. See [twitter-thread.md](./twitter-thread.md).
+### Reddit
 
-Tag handles in the *reply* tweets, not the lead — don't bury the hook.
-Useful accounts to consider tagging: @AnthropicAI, @OpenAIDevs, @GoogleAI
-(only if accurate to your post — do not spam-tag for reach).
+Heavy downweight on overt self-promotion. Lead with the technical
+content, use first person sparingly, treat it as a tip share more than
+a product launch.
 
-### Reddit — niche, high-intent
+### Medium
 
-- **r/ClaudeAI** — primary. Use [reddit-claudeai.md](./reddit-claudeai.md).
-- **r/LocalLLaMA** — skip. Different crowd (self-hosted models).
-- **r/programming** — skip. Too noisy for tools.
-- **r/OpenAI**, **r/singularity** — optional, lower fit.
-
-Reddit downweights overt self-promotion. Lead with the technical content,
-not "I built this!" Use first person sparingly.
-
-### Medium — long tail
-
-- Submit to Dev Genius, Better Programming, or Towards Data Science as a
-  guest post. Do not publish straight to your personal profile.
-- The reframe: more narrative arc ("Why I distrust single-AI answers, and
-  what I built about it"), less terse-engineering.
+Submit to an established publication (Dev Genius, Towards Data Science,
+Better Programming). Don't publish on a personal profile — it dies in
+an empty stream.
 
 ## Realistic expectations
 
-- A Show HN that *almost* hits front page is the most common outcome. 200–
-  1,500 views, 5–30 stars on the repo, a handful of substantive comments. That
-  is still a success.
-- Dev.to + Twitter typically add another 500–2,000 views over the first week
-  whether HN pops or not. That is the resilient floor.
-- A Show HN that *does* hit front page can do 10k–50k views in 24 hours, but
-  it's variance, not a planned outcome.
-- Either way: the artifacts are reusable. If launch day underperforms,
-  re-publish in a month with one new feature and a fresh angle.
+- A Show HN that *almost* hits front page is the most common outcome:
+  200–1,500 views, 5–30 stars, a handful of substantive comments. Still
+  a success.
+- Dev.to + Twitter combined add another 500–2,000 views over the first
+  week regardless of HN. The resilient floor.
+- A Show HN that *does* hit front page: 10k–50k views in 24 hours. But
+  it's variance, not a plan.
+- Either way the artifacts are reusable. If launch day is quiet,
+  re-publish in 4–6 weeks with a new feature and a fresh angle.
 
 ## Post-launch sustain
 
-- [ ] Track new GitHub stars, issues, and PRs daily for the first week.
-- [ ] Respond to every issue within 24 h, even just "thanks, looking at it."
-- [ ] Take one piece of credible feedback and ship it within 7 days. Then
-  reply to the original commenter that it's done. This converts a critic
-  into an advocate, every time.
-- [ ] Two weeks after launch: write the follow-up article about what real
-  users surfaced. Cross-post the same way.
+- [ ] Track new GitHub stars, issues, PRs daily for the first week.
+- [ ] Respond to every issue within 24h, even just "thanks, looking
+  at it."
+- [ ] Take one credible piece of feedback and ship it within 7 days.
+  Reply to the original commenter that it's done. Converts critics
+  into advocates every time.
+- [ ] Two weeks in: write the follow-up about what real users surfaced.
+  Cross-post the same way. The second swing usually does better
+  because you've internalized the feedback.
 
-## Honesty as a strategy
+## Why this framing works
 
-Your edge in this market is not hype — the AI-tools space is *saturated* with
-hype and the audience has been burned. Be the rare honest voice:
+The current AI-tools landscape is saturated. Users have been burned by
+hype and are deeply skeptical of new tools claiming superiority. The
+winning move is not louder marketing — it's surfacing a *concrete
+outcome* they can verify themselves in one command.
 
-- The article should explicitly name what `converge` does **not** do well —
-  cost (6 calls), latency (minutes), and that Antigravity CLI is brand new
-  (3 days old at time of writing) so its integration is best-effort. Own it.
-- HN crowd values self-criticism. "Here are the failure modes I'm aware of"
-  earns trust where "amazing new tool!!!" loses it.
-- The `converge` honesty rules (no silent degradation, no majority ratifying)
-  are themselves marketable. Lead with them.
+"Converged answer from three frontier AIs in one terminal" is a sentence
+the reader can either get value from in 2 minutes (run the command,
+judge the output) or dismiss in 30 seconds. Both outcomes are fine. What
+loses is preamble — explaining the mechanism before the value lands.

@@ -1,157 +1,139 @@
 # X / Twitter thread
 
-Copy-paste each tweet. Numbers in brackets are character counts (max 280).
+Outcome-led, mechanism barely mentioned. Character counts in brackets.
 
 ---
 
-## Tweet 1 — the hook (attach 15s demo GIF/video)
+## Tweet 1 — the hook (attach the 15s demo)
 
 ```
-Stop asking one AI.
+Stop trusting one AI on hard technical decisions.
 
-I made Claude, GPT-class (Codex), and Gemini 3 Pro (Antigravity) debate each other inside one terminal — independent answers → mutual critique → refinement → synthesis.
+One terminal command. Three frontier AIs — Claude, OpenAI (via Codex), Google's Antigravity (Gemini 3 Pro). One converged answer that shows what they agree on AND where they don't.
 
-The output shows what they agree on AND where they don't.
-
-15s ↓
+15s demo ↓
 ```
 
-[263 chars]
-
-**Attach:** the demo asciinema/GIF — see `launch/demo-script.md`.
+[279 chars] **Attach the demo video / GIF.**
 
 ---
 
-## Tweet 2 — the problem
+## Tweet 2 — the pain (briefly)
 
 ```
-Single-agent answers sound confident even when wrong.
+For routine code, one AI is fine.
 
-For routine code, fine.
+For architecture calls, security audits, anything contentious — single-AI confidence is dangerous. You can't tell from the response if it's right.
 
-For hard architecture calls, security audits, contentious technical decisions — dangerous. Three browser tabs and you're still stuck reconciling in your head.
+Three browser tabs and manual reconciliation? Slow.
+
+One terminal command? Possible.
 ```
 
-[256 chars]
+[269 chars]
 
 ---
 
-## Tweet 3 — the protocol
+## Tweet 3 — what you get back
 
 ```
-converge runs a 4-phase Delphi protocol across 3 frontier agents:
+What lands in your terminal:
 
-1. Independent first answers (no anchoring)
-2. Mutual critique (each sees all three round-1 answers)
-3. Refinement (each updates, must justify accepts/rejects)
-4. Synthesis
+→ Consensus — what all three agreed on
+→ Disagreements — where they split, each side's argument
+→ Recommendation — synthesized, weak-evidence calls flagged
+→ Decisions left to YOU — specifically
+→ Audit trail — how each agent's position moved
 
-6 external calls. 3 parallel batches.
-```
-
-[277 chars]
-
----
-
-## Tweet 4 — what you get
-
-```
-The synthesis is the deliverable. It surfaces:
-
-→ Points all three agree on
-→ Genuine disagreements with each side's reasoning
-→ A recommendation with weak-evidence calls flagged
-→ Decision points left to YOU
-→ Audit trail of how each agent's position moved across rounds
-```
-
-[273 chars]
-
----
-
-## Tweet 5 — why this is not "just polling"
-
-```
-The hard problem wasn't the orchestration.
-
-It was preventing the protocol from regressing into agreement theatre. Four honesty rules are baked in:
-
-→ No silent degradation
-→ No majority ratifying (2-vs-1 is evidence, not proof)
-→ No papering over disagreement
-→ No inventing positions
+An answer AND the dissent.
 ```
 
 [279 chars]
 
 ---
 
-## Tweet 6 — credit to vendors (optional but earns goodwill)
+## Tweet 4 — when this matters
 
 ```
-Bridges all three flagship CLIs:
+Where this changes the outcome:
 
-@AnthropicAI Claude Code as the orchestrator
-OpenAI's `codex` for GPT-class reasoning
-Google's brand-new Antigravity (`agy`) for Gemini 3 Pro + 1M-token context
+→ "Should we move from REST to gRPC?"
+→ "Is this auth flow actually secure?"
+→ "Framework X or framework Y?"
+→ "What's the cleanest path to deprecate this API?"
 
-Three vendors. One terminal. Honest debate.
+Hard questions where multiple defensible answers exist — and you need to decide one.
 ```
 
-[245 chars]
-
-> Tag @-handles only if they're accurate to your post. Don't spam-tag for reach.
+[280 chars]
 
 ---
 
-## Tweet 7 — the install (the magnet)
+## Tweet 5 — the other capabilities
 
 ```
-Plugin marketplace pattern. Install once, use forever:
+Same install also unlocks:
 
-/plugin marketplace add raiaman15/carefully-crafted-plugins
-/plugin install converge@carefully-crafted-plugins
-
-Then:
-/converge:debate "your hard question here"
-
-Code: github.com/raiaman15/carefully-crafted-plugins
-
-MIT.
+→ Image generation in your terminal (OpenAI's gpt-image-2 AND Google's Nano Banana Pro)
+→ Video generation via Veo
+→ 1M-token codebase analysis (Gemini 3 Pro — 5× Claude Code's context)
+→ Frontier reasoning offload via Codex
+→ Browser automation
+→ Codex resume
 ```
 
-[277 chars]
+[280 chars]
 
 ---
 
-## Tweet 8 — the CTA + ask
+## Tweet 6 — install
 
 ```
-Built this because I got tired of trusting confident single-AI answers.
+Install in 4 lines (inside Claude Code):
 
-If you try it on a hard question and the synthesis is useful — or if it falls flat — open an issue. I want to build the failure-mode corpus.
+/plugin marketplace add infroid/carefully-crafted-plugins
+/plugin install contexthub@carefully-crafted-plugins
+/plugin install codex@carefully-crafted-plugins
+/plugin install agy@carefully-crafted-plugins
 
-⭐ if the idea is worth your attention.
+MIT. Zero external deps.
 ```
 
-[260 chars]
+[268 chars]
+
+---
+
+## Tweet 7 — try it (the ask)
+
+```
+Try /contexthub:converge on a real hard question you've been debating with yourself this week.
+
+If the converged answer genuinely helps you decide, ⭐ the repo.
+If it doesn't, drop the question in an issue.
+
+github.com/infroid/carefully-crafted-plugins
+```
+
+[262 chars]
 
 ---
 
 ## Posting checklist
 
-- [ ] Tweet 1: confirm the GIF/video uploaded and previews correctly.
-- [ ] Post 1-8 as a single thread (reply chain), not separate tweets.
+- [ ] Tweet 1: demo uploads correctly and the first 3 seconds make the
+  product obvious without sound.
+- [ ] Post Tweet 1 → 7 as a single thread (reply chain). One tweet at a
+  time, not bulk-scheduled.
 - [ ] Pin the thread to your profile for 7 days.
-- [ ] Reply to anyone who quotes within the first 24h.
-- [ ] If a tweet in the thread underperforms badly, do *not* edit (kills the
-  chain) — just keep going.
+- [ ] Reply to every quote-tweet within 24 hours.
+- [ ] If a tweet underperforms badly, do *not* edit — that kills the
+  thread.
+- [ ] Don't tag vendor accounts (@AnthropicAI, @OpenAIDevs, @GoogleAI)
+  unless the tweet is genuinely about them. Spam-tagging for reach is
+  noticed and downweighted.
 
-## A note on tags
+## On hashtags
 
-Tag responsibly:
-- `@AnthropicAI`, `@OpenAIDevs`, `@GoogleAI` only if you actually credit
-  their tool in that tweet (Tweet 6 above). Don't tag for reach in tweets
-  that aren't about them.
-- The AI-engineering hashtags `#AIengineering`, `#LLMOps`, `#ClaudeCode`,
-  `#AItools` work but use ≤2 per tweet — more reads spammy.
+Keep to ≤2 per tweet, and only where they're load-bearing:
+`#ClaudeCode`, `#AItools`, `#AIengineering`, `#LLMOps`. More than two
+reads spammy and tanks reach.

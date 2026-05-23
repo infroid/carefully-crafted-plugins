@@ -3,97 +3,95 @@
 ## Title (copy verbatim — do not "improve" before submitting)
 
 ```
-Show HN: Converge – Make Claude, Codex, and Gemini debate before answering hard questions
+Show HN: Get a converged answer from three frontier AIs in one terminal
 ```
 
-Notes:
-- 70-char limit. The line above is 79 chars — trim "before answering hard
-  questions" to "before answering" (62 chars) if HN rejects, or use:
-  `Show HN: Converge – three frontier AI agents debate before answering`
-  (62 chars).
-- Lead with "Show HN: Converge" — readers' eyes lock on the name.
-- The em-dash version reads better than colon; HN allows both.
+[68 chars — within HN's 80-char title limit with margin.]
 
 ## URL field
 
 ```
-https://github.com/raiaman15/carefully-crafted-plugins
+https://github.com/infroid/carefully-crafted-plugins
 ```
 
-(The repo, not the Dev.to article. Show HN convention: link the project.)
+HN convention: Show HN links the project, not the article. Mention the
+Dev.to article in the body for readers who want the long form.
 
 ## Text field (the body)
 
 ```
-Hi HN. I built a Claude Code plugin that orchestrates a structured four-phase
-debate between Claude (Anthropic), OpenAI Codex CLI (GPT-class), and Google's
-Antigravity CLI (Gemini 3 Pro) — all inside one terminal session — and then
-converges on a single synthesized answer.
+Hi HN. I built a Claude Code plugin (contexthub) that lets you ask one
+question to three frontier models — Claude (Anthropic), OpenAI Codex
+(GPT-class), and Google's Antigravity (Gemini 3 Pro, 1M-token context) —
+and get back one synthesized answer that surfaces what they agree on and
+where they don't.
 
-Motivation: single-agent answers sound confident even when wrong. Asking the
-same question to three frontier models in three browser tabs is tedious and
-gives you raw outputs with no synthesis. You still don't know which to trust.
-For hard architectural calls, security audits, and contentious technical
-decisions, that's a real problem.
+  /contexthub:converge "Should we move auth from session cookies to JWTs?"
 
-So I implemented a Delphi-style protocol:
+What you get back is structured for decisions, not for reading: a
+consensus block (use as ground), a disagreements block with each side's
+argument (this is the actually useful part), a recommendation with
+weak-evidence calls flagged for override, the specific decision points
+left to you, and an audit trail of how each agent's position moved.
 
-  Phase 1  Independent first answers (parallel, no anchoring)
-  Phase 2  Mutual critique (each agent sees all three round-1 answers)
-  Phase 3  Refinement (each agent updates, must justify accepts/rejects)
-  Phase 4  Synthesis (Claude orchestrator — consensus, disagreements,
-                       recommendation, decision points for the user,
-                       audit trail of how each agent moved)
+The motivation: single-AI answers sound confident even when wrong, and
+for hard technical calls (architecture, security, contentious tradeoffs)
+you can't tell from the response which. Pasting the same question into
+three browser tabs and reconciling in your head is slow and gives you
+raw outputs with no synthesis.
 
-Six external CLI calls in three parallel batches. A lightweight variant
-(Phase 1 + Phase 4 only) does it in two calls when you want diverse views
-without the full ceremony.
+Under the hood: a Delphi-style protocol — independent answers, mutual
+critique, refinement, synthesis — with the prompts tuned so the agents
+actually disagree where they should, rather than converging on confident
+agreement. Six external calls in three parallel batches for the full
+protocol; a lightweight variant does Phase 1 + Phase 4 only in two calls
+when you want diverse views without the full back-and-forth. The value
+is in the structured output, not the mechanism.
 
-The harder design problem was not the orchestration — it was preventing the
-protocol from regressing into agreement theatre. Four honesty rules are
-written into the skill prompt: don't silently degrade if one agent is
-unreachable; don't ratify a majority (2-against-1 is evidence, not proof);
-don't paper over disagreement; don't invent positions for incoherent
-responses. These exist because the failure mode of multi-agent systems is
-convergence on confident wrong answers, not divergence into confusion.
+The same marketplace also ships two bridges that contexthub builds on:
 
-Repo includes the converge plugin plus two underlying bridges:
-- codex — seven-skill structured bridge to Codex CLI (image gen, hard
-  reasoning, code review, browser, exec, resume, setup; 5-section handoff
-  contract with on-disk specs, constraint and output-format files).
-- agy — four-skill bridge to Google's Antigravity CLI for capabilities
-  Claude Code lacks: 1M-token long-context (Gemini 3 Pro), Nano Banana Pro
-  image generation, Veo video generation, raw passthrough.
+  - codex — 7-skill bridge to OpenAI Codex CLI: image generation
+    (gpt-image-2), high-effort reasoning, code review, Playwright
+    browser, structured 5-section handoff spec written to disk, session
+    resume, raw exec.
 
-MIT licensed. All Node.js standard library, zero external deps.
+  - agy — 4-skill bridge to Google's brand-new Antigravity CLI for what
+    Claude Code lacks: 1M-token codebase analysis, Nano Banana Pro
+    image gen, Veo video generation, raw passthrough.
 
-Failure modes I'm aware of, since I'd rather you hear them from me:
+MIT, Node stdlib only, 31 unit tests, no external deps.
 
-  - The synthesis is done by Claude, which is also a participant. The
-    honesty rules mitigate but don't eliminate the structural bias. If
-    you can think of a cleaner arrangement, I'd like to hear it.
-  - Antigravity CLI is three days old (Google launched it at I/O 2026,
-    replacing Gemini CLI). The wrapper targets its documented `-p` surface
-    and degrades gracefully if a flag differs, but expect rough edges.
-  - Six calls is expensive on cost and latency. This is for hard questions,
-    not routine queries.
+Repo: https://github.com/infroid/carefully-crafted-plugins
+Article: [paste your Dev.to article URL here once published]
 
-Repo: https://github.com/raiaman15/carefully-crafted-plugins
-
-Happy to discuss the protocol design and the failure modes I haven't found yet.
+Happy to discuss design — particularly the prompts I'm using to make
+three frontier models actually critique each other on contentious
+questions rather than converge into polite agreement.
 ```
 
 ## Tips when you submit
 
-1. **Be at the keyboard for the first 2 hours.** Reply to every comment
-   within 15 minutes. This is *the* lever for front-page rank.
-2. **Don't argue from authority.** "I think you're right, here's the
-   nuance" beats "actually, you're missing X" every time on HN.
-3. **Don't ask people to upvote.** Auto-flag.
-4. **Don't reply to upvoters with thanks.** Saves comment space for actual
+1. **Be at the keyboard for the first 2 hours.** Reply within 15 minutes
+   to every comment. The first-60-minutes engagement window is *the*
+   lever for front-page rank.
+
+2. **Concede where commenters are right.** "You're right about X — let me
+   clarify Y" beats "actually, you're missing Z" every time on HN. The
+   single behaviour that most reliably converts critics into supporters.
+
+3. **Don't ask for upvotes.** Auto-flag, kills the post.
+
+4. **Don't reply to upvoters with thanks.** Saves comment space for real
    discussion.
-5. **If a thread gets contentious**, concede the point if they're right,
-   or post evidence if you're right. Never escalate tone.
-6. **Watch for comments that ask "show me a real output."** Have a real
-   synthesis example ready to paste — ideally one where the agents
-   disagreed and the disagreement was useful.
+
+5. **Have a real synthesis output ready to paste.** First commenter to
+   ask "show me a real example" — and one will — gets a concrete answer
+   in 60 seconds. If you don't have one, generate one in advance and have
+   it open in a tab.
+
+6. **If a comment is genuinely critical, treat it as a gift.** Open an
+   issue from it in front of the commenter ("good point, tracking at
+   \<issue link\>"). Visible accountability multiplies trust.
+
+7. **Anticipated questions** and prepared responses are in
+   [hn-faq.md](./hn-faq.md). Skim it before submitting.
