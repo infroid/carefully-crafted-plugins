@@ -139,14 +139,14 @@ Changes to `index.html`:
   vertical real estate, but the content becomes three columns/cards (one
   per bridge) listing what each bridge enables. The 5-section spec diagram
   is removed from the page. This is the largest single content change.
-- **Install panel** — three command boxes:
+- **Install panel** — four command boxes:
   1. `/plugin marketplace add <correct URL>`
   2. `/plugin install codex@carefully-crafted-plugins`
   3. `/plugin install agy@carefully-crafted-plugins`
   4. `/plugin install contexthub@carefully-crafted-plugins`
-  (The numbering will collapse from "Three commands in Claude Code" to a
-  more accurate heading like "Add the marketplace, then install what you
-  need.")
+  The section heading changes from "Three commands in Claude Code" to
+  "Four commands in Claude Code" (or similar phrasing). The supporting
+  copy frames all three plugins as the default install.
 - **Stale URLs** — fixed in nav + install panel as in §3.
 - **Footer** — unchanged except for any link adjustments.
 
