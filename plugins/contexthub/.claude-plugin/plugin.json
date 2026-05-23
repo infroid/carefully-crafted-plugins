@@ -1,8 +1,8 @@
 {
-  "name": "converge",
-  "version": "1.0.0",
-  "description": "Systematic multi-agent debate: stage a four-phase Delphi-style protocol among Claude Code, OpenAI Codex, and Google's Antigravity, converging on a synthesized response that surfaces consensus and remaining disagreements.",
+  "name": "contexthub",
+  "version": "2.0.0",
+  "description": "Stage a systematic four-phase debate among Claude Code, OpenAI Codex, and Google's Antigravity on a single hard prompt. Each agent answers independently, critiques the others, refines, and Claude synthesizes a converged final response that surfaces consensus and remaining disagreements.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
-  "homepage": "https://github.com/raiaman15/carefully-crafted-plugins",
-  "keywords": ["converge", "debate", "delphi", "multi-agent", "ensemble", "synthesis"]
+  "homepage": "https://github.com/infroid/carefully-crafted-plugins",
+  "keywords": ["contexthub", "converge", "debate", "delphi", "multi-agent", "ensemble", "synthesis"]
 }
