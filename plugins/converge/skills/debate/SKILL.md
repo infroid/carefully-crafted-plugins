@@ -1,7 +1,6 @@
 ---
 name: debate
 description: Stage a systematic four-phase Delphi-style debate among Claude Code, OpenAI Codex, and Google's Antigravity on a single hard prompt. Each agent answers independently, then critiques the others, then refines its own answer, and Claude synthesizes a converged final response that surfaces consensus and remaining disagreements. Use for genuinely hard questions where diverse-model perspectives are worth the cost (typically 6 external CLI calls). Slash-command only.
-disable-model-invocation: true
 argument-hint: <prompt to debate>
 ---
 

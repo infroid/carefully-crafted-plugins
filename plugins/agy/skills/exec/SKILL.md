@@ -1,7 +1,6 @@
 ---
 name: exec
 description: Power-user escape hatch — pass any prompt straight to Google's Antigravity CLI (agy) for general coding tasks (multi-file edits, refactors, repo analysis). Use only when the focused skills (/agy:longcontext, /agy:image, /agy:video) do not fit. Slash-command only.
-disable-model-invocation: true
 argument-hint: <task for agy>
 ---
 

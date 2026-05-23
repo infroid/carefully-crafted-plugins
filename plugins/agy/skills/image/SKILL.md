@@ -1,7 +1,6 @@
 ---
 name: image
 description: Generate raster images using Google's Nano Banana Pro (Imagen-class) model via Antigravity CLI — icons, illustrations, mockups, photos, hero images, UI assets. An alternative image-generation route to /codex:image (which uses OpenAI's gpt-image-2). Slash-command only so it does not compete with /codex:image for auto-triggers — pick this when you specifically want Google's image model.
-disable-model-invocation: true
 argument-hint: <image description>
 ---
 

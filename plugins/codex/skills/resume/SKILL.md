@@ -1,7 +1,6 @@
 ---
 name: resume
 description: Continue the most recent OpenAI Codex session with a follow-up prompt, keeping its full transcript, plan, and approvals. Use via /codex:resume.
-disable-model-invocation: true
 argument-hint: <follow-up for the last Codex session>
 ---
 
