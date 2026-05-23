@@ -45,7 +45,7 @@ straight to the CLI.
 
 ```bash
 # In Claude Code:
-/plugin marketplace add https://github.com/raiaman15/carefully-crafted-plugins
+/plugin marketplace add https://github.com/infroid/carefully-crafted-plugins
 /plugin install codex@carefully-crafted-plugins
 ```
 
