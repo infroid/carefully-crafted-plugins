@@ -1,0 +1,8 @@
+{
+  "name": "contexthub",
+  "version": "2.0.0",
+  "description": "Stage a systematic four-phase debate among Claude Code, OpenAI Codex, and Google's Antigravity on a single hard prompt. Each agent answers independently, critiques the others, refines, and Claude synthesizes a converged final response that surfaces consensus and remaining disagreements.",
+  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
+  "homepage": "https://github.com/infroid/carefully-crafted-plugins",
+  "keywords": ["contexthub", "converge", "debate", "delphi", "multi-agent", "ensemble", "synthesis"]
+}

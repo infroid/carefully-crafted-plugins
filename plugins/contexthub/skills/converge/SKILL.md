@@ -1,7 +1,6 @@
 ---
-name: debate
+name: converge
 description: Stage a systematic four-phase Delphi-style debate among Claude Code, OpenAI Codex, and Google's Antigravity on a single hard prompt. Each agent answers independently, then critiques the others, then refines its own answer, and Claude synthesizes a converged final response that surfaces consensus and remaining disagreements. Use for genuinely hard questions where diverse-model perspectives are worth the cost (typically 6 external CLI calls). Slash-command only.
-disable-model-invocation: true
 argument-hint: <prompt to debate>
 ---
 
@@ -19,7 +18,7 @@ each side** — so the user can make an informed call.
 
 ## When to use this
 
-Reach for `/converge:debate` only when diverse perspectives genuinely add
+Reach for `/contexthub:converge` only when diverse perspectives genuinely add
 value:
 
 - Hard technical decisions — architecture choices, tradeoff calls.
@@ -40,7 +39,7 @@ several minutes; the lightweight variant (Phase 1 + Phase 4 only) takes 2.
 
 ## Your input
 
-When invoked as `/converge:debate <prompt>`, the user's text arrives as
+When invoked as `/contexthub:converge <prompt>`, the user's text arrives as
 `$ARGUMENTS` — that is **the prompt under debate**. Refer to it as `Q`
 throughout. Keep a clean text copy of `Q` to feed into every external call.
 

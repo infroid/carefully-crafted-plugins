@@ -1,7 +1,6 @@
 ---
 name: setup
 description: Optional — re-run or customize Codex bridge setup. The image, reason, and browser skills run setup automatically on first use, so you normally do not need this. Use /codex:setup to re-scaffold or refresh starter files, verify the Codex CLI install, and update .gitignore.
-disable-model-invocation: true
 ---
 
 # Codex Bridge Setup

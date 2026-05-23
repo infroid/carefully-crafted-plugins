@@ -385,6 +385,22 @@
         gap: 16px;
       }
 
+      .handoff__layout--three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .step__list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--stone);
+        font-size: 14.5px;
+        line-height: 1.55;
+      }
+
+      .step__list li + li {
+        margin-top: 4px;
+      }
+
       .step {
         min-width: 0;
         padding: 22px 18px;
@@ -525,6 +541,10 @@
         .handoff__layout {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+
+        .handoff__layout--three {
+          grid-template-columns: 1fr;
+        }
       }
 
       @media (max-width: 660px) {
@@ -587,9 +607,9 @@
         </a>
         <nav class="nav__links" aria-label="Primary">
           <a href="#bridges">Bridges</a>
-          <a href="#handoff">Handoff</a>
+          <a href="#capabilities">Capabilities</a>
           <a href="#install">Install</a>
-          <a class="nav__github" href="https://github.com/raiaman15/carefully-crafted-plugins">GitHub</a>
+          <a class="nav__github" href="https://github.com/infroid/carefully-crafted-plugins">GitHub</a>
         </nav>
       </div>
     </header>
@@ -606,8 +626,8 @@
               per task without leaving your terminal.
             </p>
             <div class="hero__actions">
-              <a class="button button--primary" href="#install">Install codex</a>
-              <a class="button button--ghost" href="#handoff">See the handoff</a>
+              <a class="button button--primary" href="#install">Install</a>
+              <a class="button button--ghost" href="#capabilities">See capabilities</a>
             </div>
           </div>
           <div class="hero__art" aria-hidden="true">
@@ -652,7 +672,9 @@
                   <div class="chips" aria-label="Codex commands">
                     <code>/codex:image</code>
                     <code>/codex:reason</code>
+                    <code>/codex:review</code>
                     <code>/codex:browser</code>
+                    <code>/codex:resume</code>
                     <code>/codex:exec</code>
                   </div>
                 </div>
@@ -681,7 +703,7 @@
               <article class="bridge">
                 <div>
                   <span class="bridge__status">Available</span>
-                  <div class="bridge__name">converge</div>
+                  <div class="bridge__name">contexthub</div>
                 </div>
                 <div>
                   <p class="bridge__body">
@@ -690,8 +712,8 @@
                     critique, refinement, then synthesis. Converges on a final
                     response that surfaces consensus and remaining disagreements.
                   </p>
-                  <div class="chips" aria-label="Converge commands">
-                    <code>/converge:debate</code>
+                  <div class="chips" aria-label="Contexthub commands">
+                    <code>/contexthub:converge</code>
                   </div>
                 </div>
               </article>
@@ -700,42 +722,49 @@
         </div>
       </section>
 
-      <section class="section" id="handoff" aria-labelledby="handoff-heading">
+      <section class="section" id="capabilities" aria-labelledby="capabilities-heading">
         <div class="section__inner">
           <div class="section__header section__header--center">
-            <p class="eyebrow">The handoff</p>
-            <h2 id="handoff-heading">Five sections, no surprise context loss.</h2>
+            <p class="eyebrow">Capabilities</p>
+            <h2 id="capabilities-heading">What you can delegate.</h2>
             <p class="section__summary">
-              Claude Code resolves ambiguity before the external agent runs. The final spec
-              is explicit, reviewable, and stored on disk.
+              Pick the bridge that matches the task. Each one is a thin layer over
+              a real CLI — the heavy lifting happens in the external agent.
             </p>
           </div>
 
-          <div class="handoff__layout">
+          <div class="handoff__layout handoff__layout--three">
             <article class="step">
-              <span class="step__num">1</span>
-              <h3>What to do</h3>
-              <p>The role and task, expanded from your request.</p>
+              <h3>codex</h3>
+              <p>OpenAI Codex CLI.</p>
+              <ul class="step__list">
+                <li>Image generation (gpt-image-2)</li>
+                <li>Hard reasoning at high effort</li>
+                <li>Code review &amp; refactoring</li>
+                <li>Headless browser (Playwright)</li>
+                <li>Session resume</li>
+                <li>Raw exec passthrough</li>
+              </ul>
             </article>
             <article class="step">
-              <span class="step__num">2</span>
-              <h3>How to do</h3>
-              <p>Numbered steps or open-ended delegation.</p>
+              <h3>agy</h3>
+              <p>Google Antigravity CLI.</p>
+              <ul class="step__list">
+                <li>1M-token long-context analysis (Gemini 3 Pro)</li>
+                <li>Image generation (Nano Banana Pro)</li>
+                <li>Video generation (Veo)</li>
+                <li>Raw exec passthrough</li>
+              </ul>
             </article>
             <article class="step">
-              <span class="step__num">3</span>
-              <h3>Constraints</h3>
-              <p>Links to repo standards like code style, design, and security.</p>
-            </article>
-            <article class="step">
-              <span class="step__num">4</span>
-              <h3>Output</h3>
-              <p>Expected format, artifact path, and success criteria.</p>
-            </article>
-            <article class="step">
-              <span class="step__num">5</span>
-              <h3>Clarifications</h3>
-              <p>Open questions resolved before delegation starts.</p>
+              <h3>contexthub</h3>
+              <p>Multi-agent debate.</p>
+              <ul class="step__list">
+                <li>4-phase Delphi protocol</li>
+                <li>Claude + Codex + Antigravity</li>
+                <li>Independent answers, mutual critique, refinement</li>
+                <li>Synthesizes consensus + remaining disagreements</li>
+              </ul>
             </article>
           </div>
         </div>
@@ -745,31 +774,35 @@
         <div class="section__inner">
           <div class="section__header">
             <p class="eyebrow">Install</p>
-            <h2 id="install-heading">Three commands in Claude Code.</h2>
+            <h2 id="install-heading">Four commands in Claude Code.</h2>
           </div>
 
           <div class="install__panel">
             <div class="command-stack">
               <div class="command">
                 <span>1. Add the marketplace</span>
-                <pre><code>/plugin marketplace add https://github.com/raiaman15/carefully-crafted-plugins</code></pre>
+                <pre><code>/plugin marketplace add https://github.com/infroid/carefully-crafted-plugins</code></pre>
               </div>
               <div class="command">
-                <span>2. Install the bridge</span>
+                <span>2. Install codex</span>
                 <pre><code>/plugin install codex@carefully-crafted-plugins</code></pre>
               </div>
               <div class="command">
-                <span>3. Scaffold standards</span>
-                <pre><code>/codex:setup</code></pre>
+                <span>3. Install agy</span>
+                <pre><code>/plugin install agy@carefully-crafted-plugins</code></pre>
+              </div>
+              <div class="command">
+                <span>4. Install contexthub</span>
+                <pre><code>/plugin install contexthub@carefully-crafted-plugins</code></pre>
               </div>
             </div>
 
             <p class="install__note">
-              <strong>What setup creates</strong>
-              Starter Markdown files under
+              <strong>About codex setup</strong>
+              The codex bridge auto-scaffolds starter Markdown under
               <code>docs/carefully-crafted-plugins/{constraints,output-formats}/</code>
-              so each project can encode its own standards once and reuse them across
-              every bridge.
+              the first time you use one of its skills. Run <code>/codex:setup</code>
+              to re-scaffold or refresh the starter files later.
             </p>
           </div>
         </div>

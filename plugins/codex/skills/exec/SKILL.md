@@ -1,7 +1,6 @@
 ---
 name: exec
 description: Power-user escape hatch — pass any prompt directly to Codex CLI non-interactively without the structured 5-section handoff. Use only when the user explicitly invokes /codex:exec.
-disable-model-invocation: true
 argument-hint: <raw prompt for codex>
 ---
 
