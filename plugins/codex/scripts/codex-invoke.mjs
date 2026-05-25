@@ -10,9 +10,13 @@
 // Options:
 //   --imagegen               Prefix the prompt with `$imagegen` (gpt-image-2).
 //   --ref <path>             Attach a reference image. May be repeated.
-//   --model <name>           Pass `-m <name>` to codex. Omit to use the
-//                            account default model.
+//   --model <name>           Pass `-m <name>` to codex. Default: gpt-5.5
+//                            (current frontier coding model on the account).
+//                            Override with --model or CODEX_MODEL.
 //   --reasoning-effort <e>   One of: low | medium | high | xhigh.
+//                            Default: xhigh (strongest available).
+//   --verbosity <v>          One of: low | medium | high. Default: low.
+//                            Translated to `-c model_verbosity=<v>` for codex.
 //   --sandbox <mode>         read-only | workspace-write | danger-full-access.
 //                            Default: read-only.
 //   --resume-last            Resume the most recent codex session in the cwd
@@ -26,9 +30,12 @@
 //   CODEX_TIMEOUT_SEC        timeout in seconds, default 120
 //   CODEX_BIN                path to the codex binary, default "codex"
 //   CODEX_SANDBOX            default sandbox mode, default "read-only"
-//   CODEX_MODEL              default model
-//   CODEX_REASONING_EFFORT   default reasoning effort
-//   CODEX_VERBOSE            "1" to force verbose
+//   CODEX_MODEL              default model (built-in default: gpt-5.5)
+//   CODEX_REASONING_EFFORT   default reasoning effort (built-in default: xhigh)
+//   CODEX_VERBOSITY          default model verbosity (built-in default: low)
+//   CODEX_VERBOSE            "1" to force verbose stderr streaming (orthogonal
+//                            to CODEX_VERBOSITY — this controls *our* trace
+//                            relay, not the model's output length)
 //
 // Exit codes:
 //   0  success
@@ -40,7 +47,14 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+const VERBOSITIES = new Set(["low", "medium", "high"]);
 const SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
+
+// Built-in defaults: best model, highest reasoning effort, lowest verbosity.
+// Skill-level flags or env vars override these.
+const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_REASONING_EFFORT = "xhigh";
+const DEFAULT_VERBOSITY = "low";
 
 function parseArgs(argv) {
   const args = { ref: [] };
@@ -170,12 +184,21 @@ async function main() {
     process.exit(2);
   }
 
-  const model = typeof args["model"] === "string" ? args["model"] : (process.env.CODEX_MODEL || null);
+  const model = typeof args["model"] === "string"
+    ? args["model"]
+    : (process.env.CODEX_MODEL || DEFAULT_MODEL);
   const reasoningEffort = typeof args["reasoning-effort"] === "string"
     ? args["reasoning-effort"]
-    : (process.env.CODEX_REASONING_EFFORT || null);
-  if (reasoningEffort && !REASONING_EFFORTS.has(reasoningEffort)) {
+    : (process.env.CODEX_REASONING_EFFORT || DEFAULT_REASONING_EFFORT);
+  if (!REASONING_EFFORTS.has(reasoningEffort)) {
     console.error(`codex-invoke: invalid --reasoning-effort '${reasoningEffort}'. Use one of: ${[...REASONING_EFFORTS].join(", ")}`);
+    process.exit(2);
+  }
+  const verbosity = typeof args["verbosity"] === "string"
+    ? args["verbosity"]
+    : (process.env.CODEX_VERBOSITY || DEFAULT_VERBOSITY);
+  if (!VERBOSITIES.has(verbosity)) {
+    console.error(`codex-invoke: invalid --verbosity '${verbosity}'. Use one of: ${[...VERBOSITIES].join(", ")}`);
     process.exit(2);
   }
 
@@ -241,6 +264,7 @@ async function main() {
   const codexArgs = ["exec", "--skip-git-repo-check", "--sandbox", sandbox];
   if (model) codexArgs.push("-m", model);
   if (reasoningEffort) codexArgs.push("-c", `model_reasoning_effort=${reasoningEffort}`);
+  if (verbosity) codexArgs.push("-c", `model_verbosity=${verbosity}`);
   for (const p of refPaths) codexArgs.push("-i", p);
   codexArgs.push(prompt);
   if (outputLastMessage) codexArgs.push("--output-last-message", outputLastMessage);

@@ -57,8 +57,9 @@ Codex receives a finalized spec.
 
 ## Step 3: Invoke
 
-Hard reasoning is exactly when to spend Codex's strongest setting — a high
-reasoning effort:
+Hard reasoning is exactly when to spend Codex's strongest setting. The wrapper
+defaults already give you `gpt-5.5` + `--reasoning-effort xhigh` + low
+verbosity — which is what you want here — so do not override them:
 
 ```bash
 SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
@@ -73,17 +74,15 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
-  --sandbox workspace-write \
-  --reasoning-effort high
+  --sandbox workspace-write
 ```
 
 - `--sandbox workspace-write` lets Codex write the solution to the artifact
   path.
-- `--reasoning-effort high` is the default here; use `xhigh` for exceptionally
-  hard problems where latency does not matter. If the user named a specific
-  effort, use theirs instead.
-- This runs on the account's default Codex model, which is the right call for
-  most work. Only add `--model <name>` if the user explicitly names one.
+- Reasoning effort defaults to `xhigh` (the strongest). If the user explicitly
+  asks for a different effort, pass `--reasoning-effort <e>`.
+- Model defaults to `gpt-5.5`. Only add `--model <name>` if the user
+  explicitly names one.
 
 ## Step 4: Report
 

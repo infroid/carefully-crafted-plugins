@@ -21,8 +21,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --raw "$ARGUMENTS"
    This runs `--sandbox read-only` by default. If the user's task needs Codex
    to write files or use the network, add `--sandbox workspace-write` (or
    `danger-full-access`) — but treat that as a high-impact choice and confirm
-   first, per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`. You may
-   also pass `--model` / `--reasoning-effort` when the user specifies them.
+   first, per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`.
+
+   The wrapper already defaults to the strongest setup: `--model gpt-5.5`,
+   `--reasoning-effort xhigh`, `--verbosity low`. Only pass `--model`,
+   `--reasoning-effort`, or `--verbosity` when the user explicitly asks for
+   something different.
 
 4. Relay Codex's output verbatim to the user. Do not re-interpret or re-format — the user opted into raw mode deliberately.
 

@@ -17,6 +17,19 @@
 //   AGY_TIMEOUT_SEC     timeout in seconds, default 600
 //   AGY_VERBOSE         "1" to force verbose
 //
+// Note on model / effort / verbosity:
+//   The sibling codex-invoke.mjs defaults to "best model + highest effort +
+//   lowest verbosity". This wrapper would like to do the same, but as of
+//   agy 1.0.2 the non-interactive `agy -p` surface exposes NO --model,
+//   --reasoning-effort, or --verbosity flags. Model selection and
+//   thinking-mode live in the Antigravity client/IDE
+//   (Settings → Model / Reasoning), and the CLI inherits whatever is set
+//   there — verify the IDE is configured to your preferred model + highest
+//   reasoning level + terse output. If a future agy release adds real CLI
+//   flags for these, plumb them through `runAgy()` below; this wrapper
+//   deliberately does not mutate the prompt with "be terse" / "think harder"
+//   directives, since those are unreliable and silently change behavior.
+//
 // Note: the Antigravity CLI is new (Antigravity 2.0, 2026). This wrapper
 // targets the documented non-interactive form `agy -p "<prompt>"` with an
 // optional `--output-format json`. If a future agy release changes that

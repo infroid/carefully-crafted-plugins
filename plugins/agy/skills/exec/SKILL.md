@@ -24,6 +24,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/agy-invoke.mjs --prompt "$ARGUMENTS"
    - Add `--verbose` to stream Antigravity's full reasoning trace.
    - Add `--cwd <dir>` to run from a different working directory.
 
+   **Model / effort / verbosity:** unlike the codex bridge, `agy -p` does not
+   expose CLI flags for these — they are configured in the Antigravity
+   client/IDE (Settings → Model / Reasoning). If you want "best model +
+   highest effort + lowest verbosity" by default, set that once in the IDE
+   and the CLI will inherit it.
+
 3. Relay what Antigravity did — files changed, decisions made. Then sanity-
    check critically: Antigravity is a capable peer, not an authority. Flag
    anything you disagree with and let the user decide. If it made changes you
