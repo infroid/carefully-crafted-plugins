@@ -1,6 +1,6 @@
 {
   "name": "agy",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Bridge to Google's Antigravity CLI (agy) for capabilities Claude Code lacks: 1M-token long-context analysis on Gemini 3 Pro, Nano Banana Pro image generation, Veo video generation, plus a raw passthrough.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
