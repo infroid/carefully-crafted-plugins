@@ -173,18 +173,21 @@ function main() {
     const rel = path.relative(REPO_ROOT, file);
     const { findings, name, isSlashOnly } = lintOne(file);
 
-    // Cross-marketplace name uniqueness applies only to auto-triggering
-    // skills. Slash-only skills (like `exec`) are explicit-invocation,
-    // prefix-qualified by construction, and may share names across
-    // plugins on purpose.
+    // Name uniqueness within a plugin is a platform requirement.
+    // Cross-plugin sharing is allowed by design — lifecycle skills
+    // (`forge:review`, `forge:spec`) intentionally reuse phase names
+    // that primitives also expose (`codex:review`). Claude routes by
+    // the full plugin:skill identity and disambiguates by description.
     if (name) {
-      const prior = nameToEntry.get(name);
-      if (prior && !(prior.isSlashOnly && isSlashOnly)) {
+      const plugin = path.relative(REPO_ROOT, file).split(path.sep)[1];
+      const key = `${plugin}:${name}`;
+      const prior = nameToEntry.get(key);
+      if (prior) {
         findings.errors.push(
-          `name "${name}" collides with ${path.relative(REPO_ROOT, prior.file)} — auto-triggering skill names must be unique across the marketplace`
+          `name "${name}" appears twice in plugin "${plugin}" (also at ${path.relative(REPO_ROOT, prior.file)}) — skill names must be unique within a plugin`
         );
-      } else if (!prior) {
-        nameToEntry.set(name, { file, isSlashOnly });
+      } else {
+        nameToEntry.set(key, { file });
       }
     }
 

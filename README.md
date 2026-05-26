@@ -5,7 +5,8 @@
 [![Stars](https://img.shields.io/github/stars/infroid/carefully-crafted-plugins)](https://github.com/infroid/carefully-crafted-plugins/stargazers)
 
 A small, opinionated set of multi-agent plugins for Claude Code. Bridges
-to OpenAI Codex and Google Antigravity plus a Delphi debate primitive —
+to OpenAI Codex and Google Antigravity, a Delphi debate primitive,
+token-efficient task triage, and a seven-phase software lifecycle —
 sufficient for every capability worth multi-agenting, deliberately
 lightweight by construction.
 
@@ -74,6 +75,24 @@ it matters; save tokens on the rest.
 Writes a routing plan to `docs/carefully-crafted-plugins/triage/` that
 downstream specialists read to set their effort.
 
+### `forge` — the multi-agent software lifecycle
+
+Seven phases that route every step to the strongest specialist. What
+Superpowers does, with three minds.
+
+```
+/forge:spec   <rough idea>           # spec refinement, debate-aware
+/forge:plan   <spec path>            # plan + codex stress-test + agy coverage
+/forge:tdd    <plan path>            # RED-GREEN-REFACTOR; codex on stuck subproblems
+/forge:review <branch>               # three-way: Claude + codex + agy
+/forge:verify <branch>               # tests + playwright + blast-radius scan
+/forge:debug  <symptom>              # triangulate root cause across three agents
+/forge:ship   <hint>                 # commit message, retro, push (with consent)
+```
+
+Each phase writes an artifact to `docs/carefully-crafted-plugins/forge/<phase>/`
+for full audit-trail.
+
 ## Install
 
 In Claude Code:
@@ -84,6 +103,7 @@ In Claude Code:
 /plugin install agy@carefully-crafted-plugins
 /plugin install contexthub@carefully-crafted-plugins
 /plugin install triage@carefully-crafted-plugins
+/plugin install forge@carefully-crafted-plugins
 ```
 
 The codex bridge auto-scaffolds `docs/carefully-crafted-plugins/` standards
@@ -124,10 +144,14 @@ plugins/
 ├── contexthub/
 │   ├── .claude-plugin/plugin.json
 │   └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
-└── triage/
+├── triage/
+│   ├── .claude-plugin/plugin.json
+│   ├── skills/grade/SKILL.md    # difficulty grading + routing plan
+│   └── scripts/triage-write.mjs # writes the JSON artifact
+└── forge/
     ├── .claude-plugin/plugin.json
-    ├── skills/grade/SKILL.md    # difficulty grading + routing plan
-    └── scripts/triage-write.mjs # writes the JSON artifact
+    ├── skills/{spec,plan,tdd,review,verify,debug,ship}/SKILL.md
+    └── scripts/forge-write.mjs  # writes phase artifacts
 tests/unit/                      # node --test, no external deps
 tools/lint-skill.mjs             # quality-bar enforcer (run in CI via tests/)
 quality-bar.md                   # the gates every skill must clear

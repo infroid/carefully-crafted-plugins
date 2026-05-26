@@ -1,0 +1,55 @@
+{
+  "skill_name": "plan",
+  "skill_path": "plugins/forge/skills/plan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Plan the implementation of docs/carefully-crafted-plugins/forge/spec/2026-05-26-jwt-migration.md",
+      "expected_outcome": "Claude reads the spec, invokes /triage:grade (graded hard for a cross-cutting auth change), drafts a 4-8 task plan, stress-tests via /codex:reason, verifies callsite coverage via /agy:longctx (multi-file change), writes the plan artifact.",
+      "assertions": [
+        {
+          "name": "triage_invoked",
+          "type": "command-trace",
+          "description": "triage:grade is invoked before drafting"
+        },
+        {
+          "name": "codex_reason_stress_test",
+          "type": "command-trace",
+          "description": "codex:reason is invoked to stress-test the plan for missed edges (medium+ graded plan)"
+        },
+        {
+          "name": "agy_longctx_coverage",
+          "type": "command-trace",
+          "description": "agy:longctx is invoked to verify callsite coverage (multi-file change)"
+        },
+        {
+          "name": "task_count_reasonable",
+          "type": "artifact-content",
+          "description": "plan has 3-8 atomic tasks, each naming files + verification"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Plan the typo fix to README.md line 42",
+      "expected_outcome": "Claude grades low, skips Steps 3 and 4 (over-investment for a trivial change), writes a tiny plan with one task.",
+      "assertions": [
+        {
+          "name": "no_codex_reason",
+          "type": "command-trace",
+          "description": "codex:reason is NOT invoked for a low-difficulty change"
+        },
+        {
+          "name": "no_agy_longctx",
+          "type": "command-trace",
+          "description": "agy:longctx is NOT invoked for a single-line change"
+        },
+        {
+          "name": "single_task_plan",
+          "type": "artifact-content",
+          "description": "plan contains exactly one task"
+        }
+      ]
+    }
+  ]
+}

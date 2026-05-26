@@ -1,0 +1,8 @@
+{
+  "name": "forge",
+  "version": "1.0.0",
+  "description": "The multi-agent software lifecycle for Claude Code. Seven phases — spec, plan, tdd, review, verify, debug, ship — each routing to the strongest specialist (Claude, Codex, Antigravity, contexthub) and graded for difficulty by triage. What Superpowers does, with three minds.",
+  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
+  "homepage": "https://github.com/infroid/carefully-crafted-plugins",
+  "keywords": ["forge", "lifecycle", "multi-agent", "spec", "plan", "tdd", "review", "verify", "debug", "ship"]
+}
