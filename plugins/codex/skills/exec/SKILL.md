@@ -1,6 +1,6 @@
 ---
 name: exec
-description: Power-user escape hatch — pass any prompt directly to Codex CLI non-interactively without the structured 5-section handoff. Use only when the user explicitly invokes /codex:exec.
+description: Power-user escape hatch — pass any raw prompt directly to OpenAI Codex CLI without the 5-section handoff. Slash-command only: invoke as /codex:exec <prompt>. For structured delegation prefer /codex:imagegen, /codex:reason, /codex:review, or /codex:playwright.
 argument-hint: <raw prompt for codex>
 ---
 
@@ -34,6 +34,6 @@ If the user did not provide any arguments, ask: "What should I pass to Codex?"
 
 ## Reminder
 
-For most tasks, prefer the structured skills (`image`, `reason`, `browser`,
-`review`) — they enforce constraint files, output-format contracts, and
-pre-flight clarification. `/codex:exec` skips all of that.
+For most tasks, prefer the structured skills (`imagegen`, `reason`,
+`playwright`, `review`) — they enforce constraint files, output-format
+contracts, and pre-flight clarification. `/codex:exec` skips all of that.

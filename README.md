@@ -4,9 +4,10 @@
 [![License](https://img.shields.io/github/license/infroid/carefully-crafted-plugins)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/infroid/carefully-crafted-plugins)](https://github.com/infroid/carefully-crafted-plugins/stargazers)
 
-A Claude Code marketplace of bridges between coding agents. Stay in your
-Claude Code session and reach for the strongest tool per task — OpenAI
-Codex, Google Antigravity, or all three at once in a multi-agent debate.
+A small, opinionated set of multi-agent plugins for Claude Code. Bridges
+to OpenAI Codex and Google Antigravity plus a Delphi debate primitive —
+sufficient for every capability worth multi-agenting, deliberately
+lightweight by construction.
 
 ## What you can delegate
 
@@ -22,12 +23,12 @@ Codex CLI fills several capability gaps from Claude Code:
 - Raw `codex exec` passthrough
 
 ```
-/codex:image  generate a 256x256 todo app icon
-/codex:reason solve this dynamic programming problem ...
-/codex:review audit src/auth for security bugs
-/codex:browser scrape product titles from https://example.com/store
-/codex:exec   <any raw prompt to codex>
-/codex:resume <follow-up for the most recent Codex session>
+/codex:imagegen   generate a 256x256 todo app icon
+/codex:reason     solve this dynamic programming problem ...
+/codex:review     audit src/auth for security bugs
+/codex:playwright scrape product titles from https://example.com/store
+/codex:exec       <any raw prompt to codex>
+/codex:resume     <follow-up for the most recent Codex session>
 ```
 
 ### `agy` — Google Antigravity CLI
@@ -42,9 +43,9 @@ brings capabilities Claude Code lacks:
 - Raw `agy -p` passthrough
 
 ```
-/agy:longcontext audit @src/ and @packages/ for callsites that bypass requireAuth
-/agy:image       generate a 256x256 todo icon using Google's Nano Banana Pro
-/agy:video       generate a 6-second product demo showing the hero feature
+/agy:longctx     audit @src/ and @packages/ for callsites that bypass requireAuth
+/agy:nanobanana  generate a 256x256 todo icon using Google's Nano Banana Pro
+/agy:veo         generate a 6-second product demo showing the hero feature
 /agy:exec        <any raw prompt to agy>
 ```
 
@@ -93,7 +94,7 @@ or refresh the starter files later.
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{image,reason,review,browser,exec,resume,setup}/SKILL.md
+│   ├── skills/{imagegen,reason,review,playwright,exec,resume,setup}/SKILL.md
 │   ├── reference/critical-evaluation.md
 │   └── scripts/
 │       ├── spec-builder.mjs     # writes the 5-section spec
@@ -103,7 +104,7 @@ plugins/
 │       └── output-schema.json
 ├── agy/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{longcontext,image,video,exec}/SKILL.md
+│   ├── skills/{longctx,nanobanana,veo,exec}/SKILL.md
 │   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
 └── contexthub/
     ├── .claude-plugin/plugin.json
@@ -129,6 +130,23 @@ multi-agent debate is its own protocol).
 ```bash
 node --test tests/unit/*.test.mjs
 ```
+
+## Migrating from 2.x
+
+Skill names were tightened in 3.0.0 to remove cross-plugin collisions
+(both `codex` and `agy` previously had a skill called `image`). The
+renames:
+
+| Old | New |
+|---|---|
+| `/codex:image` | `/codex:imagegen` |
+| `/codex:browser` | `/codex:playwright` |
+| `/agy:image` | `/agy:nanobanana` |
+| `/agy:video` | `/agy:veo` |
+| `/agy:longcontext` | `/agy:longctx` |
+
+`/codex:reason`, `/codex:review`, `/codex:exec`, `/codex:resume`,
+`/codex:setup`, `/agy:exec`, and `/contexthub:converge` are unchanged.
 
 ## License
 

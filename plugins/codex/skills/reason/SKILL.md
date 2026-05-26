@@ -1,6 +1,6 @@
 ---
 name: reason
-description: Use for hard reasoning tasks — complex multi-step logic, math-heavy analysis, algorithmic puzzles, competition-style problems, or anything that would benefit from Codex's strongest reasoning effort. Delegates to OpenAI Codex CLI when Claude's reasoning is hitting limits.
+description: Delegate hard reasoning to OpenAI Codex at maximum effort (gpt-5.5, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging hypotheses, architecture trade-offs, or describes a problem as "hard", "tricky", "stuck on", or "can't figure out" — even if they don't name Codex. Default deep-reasoning path in this marketplace.
 argument-hint: <problem statement>
 ---
 

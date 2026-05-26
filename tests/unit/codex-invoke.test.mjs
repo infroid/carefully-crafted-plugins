@@ -107,7 +107,19 @@ test("sandbox defaults to read-only when not specified", () => {
     const res = run(["--raw", "hello"], ctx);
     assert.equal(res.status, 0, `stderr: ${res.stderr}`);
     const argv = recordedArgv(ctx.recordFile);
-    assert.deepEqual(argv, ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "hello"]);
+    assert.deepEqual(argv, [
+      "exec",
+      "--skip-git-repo-check",
+      "--sandbox",
+      "read-only",
+      "-m",
+      "gpt-5.5",
+      "-c",
+      "model_reasoning_effort=xhigh",
+      "-c",
+      "model_verbosity=low",
+      "hello",
+    ]);
   } finally {
     rmSync(ctx.dir, { recursive: true, force: true });
   }

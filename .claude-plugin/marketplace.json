@@ -5,14 +5,14 @@
     "email": "raiaman15@gmail.com"
   },
   "metadata": {
-    "description": "Plugins connecting Claude Code to external coding agents (OpenAI Codex, Google Antigravity), plus a multi-agent converger that debates a prompt across all three.",
-    "version": "2.1.0"
+    "description": "A small, opinionated set of multi-agent plugins for Claude Code. Bridges to OpenAI Codex and Google Antigravity plus a Delphi debate primitive — sufficient for every capability worth multi-agenting, deliberately lightweight by construction.",
+    "version": "3.0.0"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Delegate image generation, hard reasoning, code review, browser tasks, session resume, and arbitrary execs to OpenAI Codex CLI via a structured 5-section handoff spec.",
-      "version": "2.1.0",
+      "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review, Playwright browser, image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call.",
+      "version": "3.0.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
@@ -21,8 +21,8 @@
     },
     {
       "name": "agy",
-      "description": "Bridge to Google's Antigravity CLI for capabilities Claude Code lacks: 1M-token long-context analysis (Gemini 3 Pro), Nano Banana Pro image generation, and Veo video generation, plus a raw passthrough.",
-      "version": "2.0.1",
+      "description": "Google Antigravity CLI bridge: 1M-token long-context analysis (Gemini 3 Pro), Nano Banana Pro image generation, Veo video generation, raw exec — filling capability gaps Claude Code cannot meet alone.",
+      "version": "3.0.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
@@ -31,8 +31,8 @@
     },
     {
       "name": "contexthub",
-      "description": "Stage a systematic four-phase debate among Claude Code, OpenAI Codex, and Google Antigravity on a single hard prompt — converging on a synthesized response that surfaces consensus and remaining disagreements.",
-      "version": "2.0.0",
+      "description": "Four-phase Delphi debate primitive: Claude, OpenAI Codex, and Google Antigravity answer independently, critique each other, refine, then converge — Claude synthesizes the final answer with consensus and remaining disagreement.",
+      "version": "3.0.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"

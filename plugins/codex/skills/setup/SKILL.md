@@ -1,15 +1,15 @@
 ---
 name: setup
-description: Optional — re-run or customize Codex bridge setup. The image, reason, and browser skills run setup automatically on first use, so you normally do not need this. Use /codex:setup to re-scaffold or refresh starter files, verify the Codex CLI install, and update .gitignore.
+description: Optional — re-scaffold the Codex bridge in this repo (refresh starter constraint/output-format files, verify the Codex CLI install, update .gitignore). Other Codex skills auto-run setup on first use; /codex:setup is only needed to refresh or re-verify. Slash-command only.
 ---
 
 # Codex Bridge Setup
 
 This skill runs only when the user invokes `/codex:setup` explicitly. It is
-**optional**: the `image`, `reason`, and `browser` skills automatically run a
-quick one-time setup (`setup.mjs --ensure`) the first time they are used in a
-repo. Use `/codex:setup` to re-scaffold, refresh starter files, or check the
-Codex CLI install.
+**optional**: the `imagegen`, `reason`, `playwright`, and `review` skills
+automatically run a quick one-time setup (`setup.mjs --ensure`) the first
+time they are used in a repo. Use `/codex:setup` to re-scaffold, refresh
+starter files, or check the Codex CLI install.
 
 ## What it does
 

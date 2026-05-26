@@ -1,6 +1,6 @@
 ---
-name: image
-description: Use for image generation, icon creation, raster graphics, illustrations, hero images, mockups, screenshots-as-output, photos, logos, or any visual asset production. Delegates to OpenAI Codex CLI which routes the request through its built-in `$imagegen` skill (gpt-image-2).
+name: imagegen
+description: Generate raster images via OpenAI gpt-image-2 (Codex CLI's built-in $imagegen). Use whenever the user wants images, icons, logos, illustrations, mockups, hero graphics, screenshots-as-output, or any visual asset — even if they don't name OpenAI, Codex, or image generation. Default image-generation path in this marketplace.
 argument-hint: <image generation prompt>
 ---
 
@@ -17,7 +17,7 @@ language — then get out of the way.
 
 ## Your input
 
-When invoked as `/codex:image <prompt>`, the user's text arrives as
+When invoked as `/codex:imagegen <prompt>`, the user's text arrives as
 `$ARGUMENTS` — treat it as the visual brief that becomes the **Task** in
 Step 1. When this skill auto-triggers from conversation instead, derive the
 same brief from the surrounding context.

@@ -1,6 +1,6 @@
 ---
-name: video
-description: Generate short videos and animations using Veo (Google DeepMind's video model) via Antigravity CLI — product demo clips, animated illustrations, motion mockups. Claude Code cannot generate video at all, so this skill fills a unique gap in the marketplace.
+name: veo
+description: Generate short videos via Veo (Google DeepMind's video model) through Antigravity CLI. Use whenever the user wants video, animation, motion clips, product-demo footage, or any moving visual asset — even if they don't name Veo or Google. The only video-producing skill in this marketplace. Slow and credits-heavy; always pre-flight confirm before running.
 argument-hint: <video description>
 ---
 
@@ -16,7 +16,7 @@ a real cost; do not iterate without confirming with the user first.
 
 ## Your input
 
-When invoked as `/agy:video <description>`, the user's text arrives as
+When invoked as `/agy:veo <description>`, the user's text arrives as
 `$ARGUMENTS` — that is the video brief. Describe scene, motion, duration,
 and style. A single shot or a short sequence is far easier to get right than
 a long multi-cut clip.
