@@ -64,20 +64,15 @@ Each agent answers `Q` **without seeing the others**. This preserves diversity
    contained, concrete, falsifiable. A paragraph or short structured
    response — not chain-of-thought, not "let me think about this".
 
-2. In parallel (single message, two `Bash` tool calls), run:
+2. In parallel (single message, two `Bash` calls), run:
 
-   **Codex:**
    ```bash
    codex exec --skip-git-repo-check --sandbox read-only \
      -c model_reasoning_effort=high "$Q" 2>/dev/null
-   ```
-
-   **Antigravity:**
-   ```bash
    agy -p "$Q" 2>/dev/null
    ```
 
-   Capture each agent's stdout as `CODEX_R1` and `AGY_R1`.
+   Capture stdout as `CODEX_R1` and `AGY_R1`.
 
 3. If either call fails (binary missing, auth error, timeout), surface that
    to the user and ask whether to proceed as a 2-agent debate or stop.
@@ -91,77 +86,24 @@ critique. You critique in your own context.
    list: (a) what you agree with, (b) what you disagree with and **why**,
    (c) what's missing, (d) anything outright wrong (cite the evidence).
 
-2. In parallel, ask Codex and agy. Use this **exact prompt template** for
-   both, substituting the captured texts:
-
-   ```
-   Original question:
-   <Q>
-
-   Round 1 answers from all three agents:
-
-   [CLAUDE]
-   <CLAUDE_R1>
-
-   [CODEX]
-   <CODEX_R1>
-
-   [AGY]
-   <AGY_R1>
-
-   Task: Critique the OTHER TWO answers (not your own). For each, list:
-   - Points you agree with.
-   - Points you disagree with and why.
-   - Anything missing.
-   - Anything outright wrong — cite evidence.
-
-   Be specific. Do not flatter. If two answers say the same thing and you
-   think it is wrong, say so — do not appeal to consensus.
-   ```
-
-   Invoke (parallel):
-   ```bash
-   codex exec --skip-git-repo-check --sandbox read-only \
-     -c model_reasoning_effort=high "$critique_prompt" 2>/dev/null
-   agy -p "$critique_prompt" 2>/dev/null
-   ```
-
-   Capture `CODEX_CRIT` and `AGY_CRIT`.
-
-3. If the prompts get very long, write them to a temp file and pass a short
-   directive instead (`codex exec ... "Read /tmp/converge-r2.md and ..."`),
-   then have the agent read the file.
+2. Load the **Phase 2 critique prompt** from
+   `${CLAUDE_PLUGIN_ROOT}/skills/converge/references/critique-and-refinement-prompts.md`,
+   substitute `<Q>`, `<CLAUDE_R1>`, `<CODEX_R1>`, `<AGY_R1>`, and invoke Codex
+   and agy in parallel. Capture `CODEX_CRIT` and `AGY_CRIT`.
 
 ## Phase 3 — Refinement (parallel) — skip in lightweight mode
 
 Each agent updates its answer in light of the critiques.
 
-1. Update your own answer, `CLAUDE_R2`, based on the critiques you find
-   compelling. **Explicitly state** which critique points you accepted and
-   which you rejected, with one-sentence reasoning each. Do not silently
-   change positions.
+1. Update your own answer, `CLAUDE_R2`. **Explicitly state** which critique
+   points you accepted and which you rejected, with one-sentence reasoning
+   each. Do not silently change positions.
 
-2. Ask Codex and agy with this **refinement prompt template**:
-
-   ```
-   Original question:
-   <Q>
-
-   Your round 1 answer:
-   <CODEX_R1 or AGY_R1 — the agent's own>
-
-   Critiques you received:
-   - From Claude:
-     <CLAUDE_CRIT>
-   - From the other agent:
-     <CODEX_CRIT or AGY_CRIT — whichever is not the agent's own>
-
-   Task: Update your answer. Explicitly state which critique points you
-   accepted and which you rejected, with reasoning. If you still believe
-   your original answer is right, defend it — do not capitulate to consensus.
-   ```
-
-   Invoke in parallel as in Phase 2. Capture `CODEX_R2` and `AGY_R2`.
+2. Load the **Phase 3 refinement prompt** from
+   `${CLAUDE_PLUGIN_ROOT}/skills/converge/references/critique-and-refinement-prompts.md`.
+   Send a tailored copy to each external agent (Codex gets `CODEX_R1` +
+   critiques against it; agy gets `AGY_R1` + critiques against it). Invoke
+   in parallel. Capture `CODEX_R2` and `AGY_R2`.
 
 ## Phase 4 — Synthesis (Claude only)
 
@@ -200,11 +142,9 @@ Keep it tight — one row per major point, not per word.
 ## Lightweight variant (Phase 1 + Phase 4)
 
 Skip Phases 2 and 3. Go straight from independent answers to synthesis. Tell
-the user up front you are doing this so they know the depth.
-
-The synthesis is the same structure, but the **Disagreements** section
-becomes the dominant section — you have not given the agents a chance to
-move, so most differences will remain.
+the user up front you are doing this so they know the depth. The synthesis is
+the same structure, but **Disagreements** becomes dominant — agents had no
+chance to move, so most differences remain.
 
 ## Honesty rules
 
