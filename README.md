@@ -60,6 +60,20 @@ and remaining disagreements.
 /contexthub:converge should we move auth from session cookies to JWTs?
 ```
 
+### `triage` — token-efficient task grading
+
+Grade a task low/medium/hard before delegating. The codex bridge now
+defaults to `medium` reasoning effort instead of `xhigh` — `triage`
+escalates only when difficulty warrants it. Spend the big effort where
+it matters; save tokens on the rest.
+
+```
+/triage:grade audit src/auth.ts for race conditions
+```
+
+Writes a routing plan to `docs/carefully-crafted-plugins/triage/` that
+downstream specialists read to set their effort.
+
 ## Install
 
 In Claude Code:
@@ -69,6 +83,7 @@ In Claude Code:
 /plugin install codex@carefully-crafted-plugins
 /plugin install agy@carefully-crafted-plugins
 /plugin install contexthub@carefully-crafted-plugins
+/plugin install triage@carefully-crafted-plugins
 ```
 
 The codex bridge auto-scaffolds `docs/carefully-crafted-plugins/` standards
@@ -106,9 +121,13 @@ plugins/
 │   ├── .claude-plugin/plugin.json
 │   ├── skills/{longctx,nanobanana,veo,exec}/SKILL.md
 │   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
-└── contexthub/
+├── contexthub/
+│   ├── .claude-plugin/plugin.json
+│   └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
+└── triage/
     ├── .claude-plugin/plugin.json
-    └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
+    ├── skills/grade/SKILL.md    # difficulty grading + routing plan
+    └── scripts/triage-write.mjs # writes the JSON artifact
 tests/unit/                      # node --test, no external deps
 tools/lint-skill.mjs             # quality-bar enforcer (run in CI via tests/)
 quality-bar.md                   # the gates every skill must clear

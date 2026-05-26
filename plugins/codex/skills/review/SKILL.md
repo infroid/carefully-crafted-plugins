@@ -79,11 +79,17 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
-  --sandbox read-only
+  --sandbox read-only \
+  --reasoning-effort high
 ```
 
 To apply a refactor, set `--role "Refactoring agent"` and
 `--sandbox workspace-write` instead (only after confirming in Step 2).
+
+`--reasoning-effort high` is explicit — code review wants strong reasoning
+over the wrapper's `medium` default. The `triage` plugin can grade
+individual reviews up to `xhigh` for genuinely hard audits, or down to
+`medium` for trivial diffs.
 
 ## Step 4: Report
 

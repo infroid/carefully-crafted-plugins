@@ -23,10 +23,10 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --raw "$ARGUMENTS"
    `danger-full-access`) — but treat that as a high-impact choice and confirm
    first, per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`.
 
-   The wrapper already defaults to the strongest setup: `--model gpt-5.5`,
-   `--reasoning-effort xhigh`, `--verbosity low`. Only pass `--model`,
-   `--reasoning-effort`, or `--verbosity` when the user explicitly asks for
-   something different.
+   The wrapper defaults to `--model gpt-5.5`, `--reasoning-effort medium`,
+   `--verbosity low` — the token-efficient floor. Pass `--reasoning-effort
+   high` or `xhigh` only when the task is genuinely hard; the `triage`
+   plugin does this grading for you.
 
 4. Relay Codex's output verbatim to the user. Do not re-interpret or re-format — the user opted into raw mode deliberately.
 

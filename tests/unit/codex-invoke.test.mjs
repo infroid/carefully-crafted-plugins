@@ -115,7 +115,7 @@ test("sandbox defaults to read-only when not specified", () => {
       "-m",
       "gpt-5.5",
       "-c",
-      "model_reasoning_effort=xhigh",
+      "model_reasoning_effort=medium",
       "-c",
       "model_verbosity=low",
       "hello",

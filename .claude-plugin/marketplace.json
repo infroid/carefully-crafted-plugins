@@ -5,14 +5,14 @@
     "email": "raiaman15@gmail.com"
   },
   "metadata": {
-    "description": "A small, opinionated set of multi-agent plugins for Claude Code. Bridges to OpenAI Codex and Google Antigravity plus a Delphi debate primitive — sufficient for every capability worth multi-agenting, deliberately lightweight by construction.",
-    "version": "3.0.0"
+    "description": "A small, opinionated set of multi-agent plugins for Claude Code. Bridges to OpenAI Codex and Google Antigravity, a Delphi debate primitive, and a token-efficient task-grading triage — sufficient for every capability worth multi-agenting, deliberately lightweight by construction.",
+    "version": "3.1.0"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review, Playwright browser, image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call.",
-      "version": "3.0.0",
+      "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call. Default effort is medium; triage escalates per task.",
+      "version": "3.1.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
@@ -38,6 +38,16 @@
         "email": "raiaman15@gmail.com"
       },
       "source": "./plugins/contexthub"
+    },
+    {
+      "name": "triage",
+      "description": "Token-efficient task grading: decomposes a task into single-or-subtask, grades each low/medium/hard, and writes a routing plan that the codex/agy/contexthub bridges read to set effort and model. The token-efficiency primitive — spend big effort only on hard work.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Aman Rai",
+        "email": "raiaman15@gmail.com"
+      },
+      "source": "./plugins/triage"
     }
   ]
 }
