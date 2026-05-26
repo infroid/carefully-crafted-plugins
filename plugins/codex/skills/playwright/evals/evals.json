@@ -1,0 +1,45 @@
+{
+  "skill_name": "playwright",
+  "skill_path": "plugins/codex/skills/playwright",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Scrape the titles of every product on https://example.com/store and save them to a CSV",
+      "expected_outcome": "Claude writes a spec naming the target URL, the extraction shape, and the artifact path; invokes codex-invoke.mjs with --sandbox workspace-write and --reasoning-effort medium (scripted automation doesn't need higher).",
+      "assertions": [
+        {
+          "name": "spec_includes_url",
+          "type": "spec-content",
+          "description": "spec's Task field includes the literal target URL"
+        },
+        {
+          "name": "sandbox_workspace_write",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --sandbox workspace-write"
+        },
+        {
+          "name": "effort_medium",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --reasoning-effort medium (scripted browser work)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Run the E2E tests in tests/e2e/ against staging.example.com and report failures",
+      "expected_outcome": "Claude scopes the spec to the staging URL + test path, captures stdout to artifact, and respects auth handling if Step 2 pre-flight surfaces credentials.",
+      "assertions": [
+        {
+          "name": "preflight_auth_check",
+          "type": "conversation",
+          "description": "Claude asks about auth handling before running tests against a non-public URL"
+        },
+        {
+          "name": "artifact_under_output",
+          "type": "spec-content",
+          "description": "artifact-path is under docs/carefully-crafted-plugins/output/"
+        }
+      ]
+    }
+  ]
+}

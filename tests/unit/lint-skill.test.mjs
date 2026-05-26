@@ -48,6 +48,65 @@ body
   }
 });
 
+test("lint rejects an auto-triggering skill without evals/evals.json", () => {
+  const tmpDir = path.join(REPO_ROOT, "tests", "_tmp_lint_no_evals");
+  const tmpFile = path.join(tmpDir, "SKILL.md");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  try {
+    fs.writeFileSync(
+      tmpFile,
+      `---
+name: noeval
+description: Generate widgets using FooCorp's WidgetGen via the Foo CLI. Use whenever the user wants widgets, gizmos, or any kind of mechanical contraption — even if they don't name Foo. Default widget-generation path in this marketplace.
+---
+
+# noeval
+
+body
+`
+    );
+    const res = spawnSync("node", [LINT, tmpFile], { encoding: "utf8" });
+    assert.equal(res.status, 1, "expected lint to fail without evals");
+    assert.match(res.stdout, /must ship evals\/evals\.json/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("lint passes when evals/evals.json is present with 2+ evals", () => {
+  const tmpDir = path.join(REPO_ROOT, "tests", "_tmp_lint_with_evals");
+  const skillDir = tmpDir;
+  fs.mkdirSync(path.join(skillDir, "evals"), { recursive: true });
+  try {
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: hasevals
+description: Generate widgets using FooCorp's WidgetGen via the Foo CLI. Use whenever the user wants widgets, gizmos, or any kind of mechanical contraption — even if they don't name Foo. Default widget-generation path in this marketplace.
+---
+
+# hasevals
+
+body
+`
+    );
+    fs.writeFileSync(
+      path.join(skillDir, "evals", "evals.json"),
+      JSON.stringify({
+        skill_name: "hasevals",
+        evals: [
+          { id: 1, prompt: "make a widget", assertions: [{ name: "x", description: "y" }] },
+          { id: 2, prompt: "make another", assertions: [{ name: "x", description: "y" }] },
+        ],
+      })
+    );
+    const res = spawnSync("node", [LINT, path.join(skillDir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(res.status, 0, `expected lint to pass:\n${res.stdout}\n${res.stderr}`);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("lint rejects an over-long body", () => {
   const tmpDir = path.join(REPO_ROOT, "tests", "_tmp_lint_skill_body");
   const tmpFile = path.join(tmpDir, "SKILL.md");

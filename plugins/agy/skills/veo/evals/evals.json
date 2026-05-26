@@ -1,0 +1,45 @@
+{
+  "skill_name": "veo",
+  "skill_path": "plugins/agy/skills/veo",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Generate a 6-second product demo video showing the hero feature — clean, modern, smooth motion",
+      "expected_outcome": "Claude pre-flights for subject/motion/duration clarity AND for explicit cost acceptance (Veo is slow + credits-intensive), then invokes agy-invoke.mjs with AGY_TIMEOUT_SEC=900 and a prompt naming Veo.",
+      "assertions": [
+        {
+          "name": "preflight_cost_warning",
+          "type": "conversation",
+          "description": "Claude tells the user Veo consumes credits and may take several minutes before invoking"
+        },
+        {
+          "name": "preflight_clarity",
+          "type": "conversation",
+          "description": "Claude confirms subject, motion, duration are clear (asks if missing) before invoking"
+        },
+        {
+          "name": "long_timeout",
+          "type": "command-trace",
+          "description": "AGY_TIMEOUT_SEC is set to >= 900s"
+        },
+        {
+          "name": "prompt_names_veo",
+          "type": "command-trace",
+          "description": "agy-invoke.mjs --prompt explicitly says 'using Veo' so Antigravity routes correctly"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Iterate on the video — make the camera move faster",
+      "expected_outcome": "Claude treats the iteration as a fresh Veo run (no in-place editing). Re-confirms cost with the user since each Veo run is expensive.",
+      "assertions": [
+        {
+          "name": "reconfirms_cost",
+          "type": "conversation",
+          "description": "Claude re-warns about Veo credit consumption for the iteration before invoking"
+        }
+      ]
+    }
+  ]
+}

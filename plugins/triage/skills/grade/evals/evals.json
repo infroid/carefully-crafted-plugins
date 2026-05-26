@@ -1,0 +1,77 @@
+{
+  "skill_name": "grade",
+  "skill_path": "plugins/triage/skills/grade",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Fix the typo in line 42 of README.md",
+      "expected_outcome": "Claude grades this as a single, low-difficulty task, suggests routing to Claude (no delegation), writes the artifact, and proceeds inline — does not invoke any specialist.",
+      "assertions": [
+        {
+          "name": "decomposition_single",
+          "type": "artifact",
+          "description": "triage JSON has decomposition='single' and one task"
+        },
+        {
+          "name": "difficulty_low",
+          "type": "artifact",
+          "description": "task[0].difficulty === 'low'"
+        },
+        {
+          "name": "specialist_claude",
+          "type": "artifact",
+          "description": "task[0].suggested_specialist === 'claude' (no delegation for trivial edits)"
+        },
+        {
+          "name": "no_codex_invoked",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs and agy-invoke.mjs are NOT invoked downstream"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Generate a hero icon for the landing page AND audit src/auth/ for race conditions in parallel",
+      "expected_outcome": "Claude grades as subtasks with two entries: t1 (imagegen, low/medium) and t2 (review, hard); writes the artifact; downstream invokes both at the graded efforts.",
+      "assertions": [
+        {
+          "name": "decomposition_subtasks",
+          "type": "artifact",
+          "description": "triage JSON has decomposition='subtasks' and exactly 2 tasks"
+        },
+        {
+          "name": "icon_routed_to_codex",
+          "type": "artifact",
+          "description": "one task has suggested_specialist='codex' for the icon"
+        },
+        {
+          "name": "audit_routed_hard",
+          "type": "artifact",
+          "description": "the audit task has difficulty='hard' and suggested_effort in {'high','xhigh'}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Why does my test suite hang intermittently on CI?",
+      "expected_outcome": "Claude grades as single + hard (root-cause from symptom), suggests codex:reason at xhigh.",
+      "assertions": [
+        {
+          "name": "difficulty_hard",
+          "type": "artifact",
+          "description": "task[0].difficulty === 'hard'"
+        },
+        {
+          "name": "effort_xhigh",
+          "type": "artifact",
+          "description": "task[0].suggested_effort === 'xhigh'"
+        },
+        {
+          "name": "specialist_codex",
+          "type": "artifact",
+          "description": "task[0].suggested_specialist === 'codex' (root-cause work)"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "skill_name": "longctx",
+  "skill_path": "plugins/agy/skills/longctx",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Find every callsite in this monorepo that bypasses the requireAuth middleware. Don't flag tests.",
+      "expected_outcome": "Claude assembles a task description with @src/ and @packages/ refs, exclusions for tests, and invokes agy-invoke.mjs with a long-timeout env (AGY_TIMEOUT_SEC=1800).",
+      "assertions": [
+        {
+          "name": "uses_at_path_syntax",
+          "type": "command-trace",
+          "description": "agy-invoke.mjs --prompt includes @src/ or @packages/ path refs"
+        },
+        {
+          "name": "long_timeout_set",
+          "type": "command-trace",
+          "description": "AGY_TIMEOUT_SEC is set to >= 600s (default) or higher for monorepo-scale audits"
+        },
+        {
+          "name": "exclusions_explicit",
+          "type": "command-trace",
+          "description": "prompt explicitly excludes tests (e.g. 'do not flag @**/__tests__/')"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review the entire 800-page architecture spec at docs/spec/ — what's inconsistent across chapters?",
+      "expected_outcome": "Claude routes to longctx because the spec exceeds its own context; invokes with @docs/spec/ and asks for chapter-by-chapter consistency findings.",
+      "assertions": [
+        {
+          "name": "agy_invoke_called",
+          "type": "command-trace",
+          "description": "agy-invoke.mjs is invoked (not codex, which lacks 1M context)"
+        },
+        {
+          "name": "at_path_for_doc",
+          "type": "command-trace",
+          "description": "prompt includes @docs/spec/ to pull the doc into Gemini's context"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "What does the parseConfig function do?",
+      "expected_outcome": "Claude does NOT route to longctx. Single-file question fits Claude's own context.",
+      "assertions": [
+        {
+          "name": "no_longctx_delegation",
+          "type": "command-trace",
+          "description": "agy-invoke.mjs is NOT invoked for a single-file question"
+        }
+      ]
+    }
+  ]
+}

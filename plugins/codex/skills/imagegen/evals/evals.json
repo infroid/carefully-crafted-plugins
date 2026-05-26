@@ -1,0 +1,62 @@
+{
+  "skill_name": "imagegen",
+  "skill_path": "plugins/codex/skills/imagegen",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Generate a 256×256 app icon for a todo list app. Soft pastel palette, friendly look.",
+      "expected_outcome": "Claude calls spec-builder.mjs to write a 5-section spec under handoffs/, then invokes codex-invoke.mjs --imagegen with --sandbox workspace-write, producing a PNG under docs/carefully-crafted-plugins/output/images/.",
+      "assertions": [
+        {
+          "name": "spec_builder_invoked",
+          "type": "command-trace",
+          "description": "spec-builder.mjs is invoked with --task-slug, --role, --task, --artifact-path under docs/carefully-crafted-plugins/output/images/"
+        },
+        {
+          "name": "imagegen_flag_passed",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs is invoked with the --imagegen flag (activates gpt-image-2 $imagegen)"
+        },
+        {
+          "name": "sandbox_workspace_write",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --sandbox workspace-write so Codex can write the PNG"
+        },
+        {
+          "name": "artifact_dated_filename",
+          "type": "file-exists",
+          "description": "output file follows docs/carefully-crafted-plugins/output/images/<YYYY-MM-DD>-<slug>.png"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Iterate on the previous icon — make the color more saturated and bump contrast",
+      "expected_outcome": "Claude invokes codex-invoke.mjs --imagegen --raw with --ref pointing at the previous PNG, refining rather than starting fresh.",
+      "assertions": [
+        {
+          "name": "ref_flag_passed",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --ref <previous PNG path>"
+        },
+        {
+          "name": "raw_iteration_mode",
+          "type": "command-trace",
+          "description": "iteration uses --raw (no new spec) rather than spec-builder"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I need an icon",
+      "expected_outcome": "Claude pre-flights for missing context (subject, dimensions, mood) before invoking — never charges ahead with an underspecified brief.",
+      "assertions": [
+        {
+          "name": "preflight_clarification",
+          "type": "conversation",
+          "description": "Claude asks at least one clarifying question (e.g. 'what subject?', 'what dimensions?') before invoking codex-invoke.mjs"
+        }
+      ]
+    }
+  ]
+}

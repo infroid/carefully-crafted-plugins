@@ -113,6 +113,31 @@ function lintOne(filePath) {
     findings.warnings.push(`body is ${bodyLines} lines; soft limit ${RULES.BODY_WARN_LINES}`);
   }
 
+  // evals/evals.json — required for auto-triggering skills
+  if (!isSlashOnly) {
+    const evalsPath = path.join(path.dirname(filePath), "evals", "evals.json");
+    if (!fs.existsSync(evalsPath)) {
+      findings.errors.push(
+        `auto-triggering skills must ship evals/evals.json with 2+ realistic prompts (missing: ${path.relative(REPO_ROOT, evalsPath)})`
+      );
+    } else {
+      try {
+        const evals = JSON.parse(fs.readFileSync(evalsPath, "utf8"));
+        if (!Array.isArray(evals.evals) || evals.evals.length < 2) {
+          findings.errors.push(`evals/evals.json must contain at least 2 evals (found ${evals.evals?.length ?? 0})`);
+        }
+        for (const e of evals.evals || []) {
+          if (!e.prompt) findings.errors.push(`evals/evals.json eval #${e.id ?? "?"} missing prompt`);
+          if (!Array.isArray(e.assertions) || e.assertions.length === 0) {
+            findings.errors.push(`evals/evals.json eval #${e.id ?? "?"} missing assertions`);
+          }
+        }
+      } catch (e) {
+        findings.errors.push(`evals/evals.json is not valid JSON: ${e.message}`);
+      }
+    }
+  }
+
   return { findings, name, isSlashOnly };
 }
 
