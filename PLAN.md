@@ -30,8 +30,10 @@ multi-agent capability dominates single-agent capability.
 
 ### Layer 1: Capability primitives (existing plugins, sharpened)
 
-These stop being the user-facing product and become building blocks the
-lifecycle calls into.
+**First-class user-facing skills AND building blocks the lifecycle
+calls into.** Users who want à la carte capability access keep direct
+invocation; users who want the full methodology go through `forge`.
+Both paths are documented, marketed, and tested.
 
 - **`codex`** — image gen, hard reasoning, code review, Playwright
   browser, exec/resume
@@ -40,14 +42,59 @@ lifecycle calls into.
 
 Track A from RECOMMENDATIONS.md still applies here: pushy descriptions,
 `evals/` per skill, `references/` split, `quality-bar.md`,
-`lint-skill.mjs`. The primitives must be airtight before the lifecycle
-leans on them.
+`lint-skill.mjs`. The primitives must be airtight because they're now
+load-bearing in two ways — as the user-facing surface AND as the engine
+of the lifecycle.
 
 ### Layer 2: The lifecycle plugin
 
 Working name: **`forge`**. One plugin, multiple lifecycle-phase skills.
 Each skill is a phase of the methodology. Each phase delegates to the
 right specialist for that phase.
+
+## Naming convention
+
+A real problem already: `codex:image` and `agy:image` collide. Claude
+auto-routes to `codex:image` every time because two skills sharing a
+name with overlapping descriptions can't be disambiguated by the
+trigger model. As more plugins ship, this compounds.
+
+The rules going forward:
+
+1. **Plugin prefix is mandatory** (Claude Code platform rule).
+2. **Skill names must be unique across the entire marketplace**, not
+   just within a plugin. No two skills share a name even if they sit
+   under different plugins.
+3. **Capability skills name themselves by the distinguishing
+   technology, not the generic capability.** `codex:imagegen` (OpenAI
+   gpt-image-2) and `agy:nanobanana` (Google Nano Banana Pro) — never
+   two skills called `image`.
+4. **Lifecycle skills name themselves by phase**: `forge:spec`,
+   `forge:plan`, `forge:review`. `forge:review` and `codex:review` are
+   intentionally different things — the plugin prefix makes the
+   distinction explicit and descriptions disambiguate for auto-trigger.
+5. **Router skills for multi-provider capabilities live in `forge`**
+   and use the generic capability name. `forge:image` decides between
+   `codex:imagegen` and `agy:nanobanana` based on the task (style,
+   speed, quality, prior preferences). This is the "let the system
+   choose" entry point.
+6. **Raw passthrough keeps `exec`** — `codex:exec` and `agy:exec` are
+   explicit-by-construction; users always type the prefix.
+
+### Rename plan
+
+| Current | New | Reason |
+|---|---|---|
+| `codex:image` | `codex:imagegen` | Tech-specific (gpt-image-2) |
+| `agy:image` | `agy:nanobanana` | Tech-specific (Nano Banana Pro) |
+| `agy:video` | `agy:veo` | Tech-specific (Veo) |
+| `agy:longcontext` | `agy:longctx` | Shorter, no collision |
+| `codex:browser` | `codex:playwright` | Tech-specific |
+| `codex:reason`, `codex:review`, `codex:resume`, `codex:setup`, `codex:exec`, `agy:exec`, `contexthub:converge` | unchanged | No collision today |
+
+Ship as a major version bump. Keep old names as deprecated aliases for
+one minor version with a visible warning, then drop. Migration must be
+painless or users will resent it.
 
 ## Phase-by-phase design
 
@@ -85,6 +132,86 @@ plugins:
 | `replay` | Subsumed into `codex:resume` / `agy:exec` resumes triggered from inside `forge:debug` |
 | `hush` | Stays standalone — cost is orthogonal to lifecycle and reusable outside `forge` |
 
+## Token efficiency — the USP
+
+Single-agent lifecycles can't grade effort because they only have one
+gear. We have three agents, each with multiple effort levels and model
+tiers. **The differentiator: every task is graded for difficulty
+before any specialist runs, and effort scales to match.**
+
+Today's bridge defaults are "best model + highest effort + lowest
+verbosity" (commit f1dded5) — correct for hard tasks, expensive
+overkill for easy ones. The triage layer fixes this.
+
+### The triage primitive
+
+A new primitive, **`triage`** — shipped as its own micro-plugin so
+direct primitive users get token efficiency without installing the
+full lifecycle. `forge` takes a hard dependency on it.
+
+**Input:** task description (from user, or from a lifecycle phase).
+
+**Output:** structured plan written to
+`docs/carefully-crafted-plugins/triage/`:
+
+```json
+{
+  "decomposition": "single" | "subtasks",
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "...",
+      "difficulty": "low" | "medium" | "hard",
+      "suggested_specialist": "claude" | "codex" | "agy" | "contexthub",
+      "suggested_effort": "low" | "medium" | "high",
+      "suggested_model": "..."
+    }
+  ]
+}
+```
+
+### Difficulty heuristics
+
+| Difficulty | Signals |
+|---|---|
+| Low | Single-file edit; well-defined spec; no ambiguity; no cross-cutting impact; no research required |
+| Medium | 2–3 files; standard pattern; some ambiguity but solvable in-context |
+| Hard | Cross-cutting; ambiguous spec; root-cause debugging from symptom; novel architecture; performance work; anything requiring 1M context to verify |
+
+### Effort mapping
+
+| Difficulty | Codex effort | Codex model | Antigravity model | Claude routing |
+|---|---|---|---|---|
+| Low | `low` | mini-tier | Flash-tier | Stay in Claude; don't delegate |
+| Medium | `medium` | best | Pro | Single specialist if needed |
+| Hard | `high` | best | Pro (full 1M) | Multi-agent (contexthub or sibling verification) |
+
+### How it plugs in
+
+Three integration points:
+
+1. **Inside every `forge:*` lifecycle skill**, call `triage` first.
+   The skill uses the result to choose specialist + effort. Users get
+   token efficiency for free.
+2. **Inside primitive bridges** (`codex-invoke.mjs`, `agy-invoke.mjs`),
+   if a triage result file is present for the current task, use it.
+   Otherwise fall back to defaults — see point 3.
+3. **Lower the bridge defaults.** Commit f1dded5 sets max effort.
+   Lower the floor to `medium`, and let triage escalate to `high` only
+   when difficulty warrants it. Direct `/codex:reason` users who skip
+   triage spend fewer tokens by default for the same correctness on
+   most tasks. Hard tasks call triage or pass `--effort high`
+   explicitly.
+
+### The USP claim
+
+> The only multi-agent lifecycle that grades every task before it runs,
+> matching effort to difficulty across three providers. Spend 5–10×
+> fewer tokens on the easy work that fills 80% of the day, and full
+> effort where it actually matters.
+
+Concrete proof requires `bench` data once the lifecycle ships.
+
 ## Open design decisions
 
 Before implementation begins, three calls to make:
@@ -101,30 +228,49 @@ Before implementation begins, three calls to make:
    isn't installed, should `forge:review` skip the long-context pass or
    refuse to run? Recommendation: skip with a visible warning, never
    refuse — but track in `bench` so the user sees what they're missing.
+4. **Triage as its own micro-plugin or a `forge` skill?**
+   Recommendation: its own plugin. Direct primitive users (the people
+   typing `/codex:reason` without ever installing `forge`) deserve
+   token efficiency too.
+5. **Renaming = breaking change. Deprecation alias or hard cut?**
+   Recommendation: ship both names for one minor version with a
+   deprecation warning, then drop. Painless migration or users
+   resent it.
+6. **Default effort floor when no triage was run.** Recommendation:
+   `medium` for Codex, equivalent for Antigravity. Conservative
+   compared to today's `highest` — saves tokens by default, escalates
+   on demand.
 
 ## Marketplace positioning (revised)
 
-The README/website pivots from "bridges between coding agents" to:
+The README/website tells two reinforcing stories:
 
-> **The multi-agent software lifecycle.**
-> What Superpowers does, with three minds.
-> Claude orchestrates. Codex executes hard reasoning. Antigravity sees
-> the whole repo. Every phase routes to the strongest specialist.
+> **The multi-agent software lifecycle.** What Superpowers does, with
+> three minds. Claude orchestrates. Codex executes hard reasoning.
+> Antigravity sees the whole repo. Every phase routes to the strongest
+> specialist — and every task is graded for difficulty so you spend
+> tokens where they matter.
 
-`forge` is the headline. The capability primitives (`codex`, `agy`,
-`contexthub`) are documented but de-emphasized — they exist for users
-who want à la carte, but the recommended path is `forge`.
+> **A curated set of capability primitives** for à la carte use. Image
+> gen, long-context analysis, hard reasoning, code review, Playwright
+> browser, multi-agent debate — each a sharp tool, each invokable
+> directly, each token-efficient by default through `triage`.
+
+`forge` is the headline. The primitives are the foundation. Both paths
+are first-class.
 
 ## Sequencing
 
 | Week | Work | Why this order |
 |---|---|---|
-| 1–2 | Track A from RECOMMENDATIONS.md in full | Primitives must be airtight before lifecycle leans on them |
-| 3–4 | Ship `forge:spec` + `forge:plan` | Front-of-funnel pair, highest visible value, easiest to demo |
-| 5–6 | Ship `forge:review` + `forge:verify` | Back-of-funnel pair, where multi-agent superiority is most provable (long-context regression + Playwright) |
-| 7–8 | Ship `forge:tdd` + `forge:debug` | Fill in the middle; routing logic now well-tested |
-| 9 | Ship `forge:ship` + `forge:onboard` walkthrough; rewrite README/website around the lifecycle | The story is now complete; positioning catches up |
-| 10+ | Build `bench` data collection; iterate routing logic on real usage; submit to Trail of Bits | Marketplace moves on a battle-tested product |
+| 1 | **Naming migration** — rename per the convention, ship a major bump with deprecated aliases, document migration in README | Collision is a live bug today; unblocks everything else |
+| 1–2 | Track A from RECOMMENDATIONS.md in full — primitives sharpened (pushy descriptions, evals, `references/`, quality bar, lint) | Primitives must be airtight: load-bearing as user surface AND lifecycle engine |
+| 2–3 | **Ship `triage` micro-plugin + lower bridge defaults from `highest` to `medium`** | Token-efficiency USP must exist before the lifecycle leans on it; immediate user-visible win on direct primitive use |
+| 4–5 | Ship `forge:spec` + `forge:plan` | Front-of-funnel pair, highest visible value, easiest to demo |
+| 6–7 | Ship `forge:review` + `forge:verify` | Back-of-funnel pair, where multi-agent superiority is most provable (long-context regression + Playwright) |
+| 8–9 | Ship `forge:tdd` + `forge:debug` | Fill in the middle; routing logic now well-tested |
+| 10 | Ship `forge:ship` + `forge:onboard` walkthrough; rewrite README/website around the dual narrative (lifecycle + primitives + token efficiency) | The story is now complete |
+| 11+ | Build `bench` data collection; publish token-efficiency benchmarks; submit to Trail of Bits | Marketplace moves backed by hard numbers |
 
 ## Track C (marketplace moves) unchanged
 
