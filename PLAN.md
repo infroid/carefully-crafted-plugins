@@ -7,6 +7,10 @@
 
 ## Thesis
 
+A **small, opinionated, lightweight set of carefully-crafted plugins**
+— sufficient for everything multi-agent unlocks, refusing to sprawl
+into a 2,800-skill marketplace. The discipline is the product.
+
 Superpowers proved that an opinionated lifecycle (brainstorm → plan →
 TDD → review → verify → ship) beats ad-hoc prompting. But Superpowers
 runs that lifecycle on a single agent, so every phase inherits that
@@ -212,6 +216,85 @@ Three integration points:
 
 Concrete proof requires `bench` data once the lifecycle ships.
 
+## Context discipline & trigger probability
+
+Skills cost context. Every installed skill's frontmatter sits in
+Claude's preamble on every turn whether used or not. A bloated
+marketplace makes Claude slower and dumber for everyone who installs
+it. Our north star: **maximum trigger probability per byte of context
+loaded.**
+
+Two halves of the same principle:
+
+- **Pushy descriptions** earn the trigger. Anthropic explicitly warns
+  Claude under-triggers by default — we counter aggressively.
+- **Tiny bodies** earn the right to live in preamble. If our skills
+  bloat context, users uninstall. If our skills earn their byte budget,
+  they stay forever.
+
+### Per-skill context budget
+
+Tighter than Anthropic's official bar across the board:
+
+| Element | Our budget | Anthropic's bar | Why we go tighter |
+|---|---|---|---|
+| Frontmatter `description` | 80–100 words | ~100 words | Stays in preamble every turn; must be pushy enough to win triggers without bloating |
+| `SKILL.md` body | <200 lines | <500 lines | Loaded on trigger; small enough to read fast, narrow enough to stay sharp |
+| `references/*.md` | unlimited | unlimited | Loaded only on explicit reference from body |
+| `scripts/*` | unlimited | unlimited | Never in context |
+
+The `lint-skill.mjs` from Track A enforces these as CI gates. A skill
+that exceeds budget either splits into `references/` or doesn't ship.
+
+### Pushiness template
+
+Every skill description must follow this shape:
+
+> {What it does in one sentence}. Use this skill whenever the user
+> mentions {primary triggers}, asks for {related actions}, or needs
+> {underlying capability} — even if they don't explicitly say
+> "{plugin name}" or "{specialist name}". This is the default for
+> {category} in this marketplace.
+
+The closing claim — *"this is the default for {category} in this
+marketplace"* — is the pushiness lever. It tells Claude that in our
+installed set, *we own this category*. Combined with a deliberately
+small set of plugins, this maximizes the odds Claude reaches for us
+first.
+
+### Examples
+
+**`codex:imagegen`**
+
+- ❌ "Generate images with OpenAI Codex."
+- ✅ "Generate images using gpt-image-2 (Codex's built-in image gen).
+  Use this skill whenever the user mentions images, icons, logos,
+  illustrations, screenshots, mockups, diagrams, or any visual asset —
+  even if they don't say 'Codex' or 'OpenAI'. This is the default
+  image-generation path in this marketplace."
+
+**`codex:reason`**
+
+- ❌ "Run high-effort reasoning via Codex."
+- ✅ "Delegate hard reasoning to OpenAI Codex at high effort. Use this
+  skill whenever the user asks for help with algorithm design, complex
+  debugging hypotheses, math, optimization problems, architecture
+  decisions, or anything they describe as 'hard', 'tricky', 'I'm stuck
+  on', or 'I can't figure out' — even if they don't mention Codex.
+  This is the default deep-reasoning path in this marketplace."
+
+**`agy:longctx`**
+
+- ❌ "Long-context analysis via Antigravity."
+- ✅ "Analyze code at 1M-token scale using Gemini 3 Pro via Antigravity.
+  Use this skill whenever the user asks about cross-file impact,
+  whole-repo audits, finding all callsites, regression risk, or any
+  question that needs reading more code than Claude can fit — even if
+  they don't mention Antigravity, Gemini, or long context. This is the
+  default whole-repo analysis path in this marketplace."
+
+Every existing skill gets rewritten to this standard as part of Track A.
+
 ## Open design decisions
 
 Before implementation begins, three calls to make:
@@ -243,21 +326,35 @@ Before implementation begins, three calls to make:
 
 ## Marketplace positioning (revised)
 
-The README/website tells two reinforcing stories:
+> **A small, opinionated set. Sufficient for what we cover. Refuses to
+> sprawl.**
+>
+> Most marketplaces race to plugin count — 2,800 skills, 425 plugins,
+> 200 agents. Ours is the opposite: a tight set that an experienced
+> developer adopts wholesale because every plugin is best-in-class for
+> its domain, and the set as a whole covers every capability worth
+> multi-agenting.
 
-> **The multi-agent software lifecycle.** What Superpowers does, with
-> three minds. Claude orchestrates. Codex executes hard reasoning.
+Three reinforcing stories on the README/website:
+
+> **1. The multi-agent software lifecycle.** What Superpowers does,
+> with three minds. Claude orchestrates. Codex executes hard reasoning.
 > Antigravity sees the whole repo. Every phase routes to the strongest
-> specialist — and every task is graded for difficulty so you spend
-> tokens where they matter.
+> specialist.
 
-> **A curated set of capability primitives** for à la carte use. Image
-> gen, long-context analysis, hard reasoning, code review, Playwright
-> browser, multi-agent debate — each a sharp tool, each invokable
-> directly, each token-efficient by default through `triage`.
+> **2. Token-efficient by default.** Every task is graded for
+> difficulty before any specialist runs. Spend 5–10× fewer tokens on
+> the easy work that fills 80% of the day, full effort where it
+> matters.
 
-`forge` is the headline. The primitives are the foundation. Both paths
-are first-class.
+> **3. Lightweight by construction.** A handful of plugins, each
+> sharper than the marketplace alternatives. Pushy descriptions earn
+> the trigger; tiny bodies keep your context clean. Install all of
+> them; that's the point.
+
+`forge` is the headline. The primitives are the foundation. `triage`
+is the efficiency layer. That's the whole set — and we don't add to it
+unless the new plugin earns its place.
 
 ## Sequencing
 
@@ -282,15 +379,31 @@ story to tell.
 ## What stays out of scope
 
 Same exclusions as RECOMMENDATIONS.md, reinforced by the multi-agent
-focus:
+focus and the discipline of staying small:
 
 - No generic single-agent persona plugins
 - No generic memory (claude-mem) or behavioral rule files (Karpathy)
 - No document-creation skills (Anthropic owns this)
-- Specifically: no lifecycle phase that doesn't have a clear
-  multi-agent advantage. If a phase is just "Claude does X," it belongs
-  in CLAUDE.md, not in `forge`.
+- No framework-specific packs (Elixir, Flutter, etc.)
+- No lifecycle phase that doesn't have a clear multi-agent advantage.
+  If a phase is just "Claude does X," it belongs in CLAUDE.md, not in
+  `forge`.
 
-This last rule is the quality bar for `forge` skills. Every phase must
-answer: *what does multi-agent unlock that single-agent can't?* If the
-answer is "nothing," the phase doesn't ship.
+### The hard admission rule
+
+A new plugin or skill ships only if it clears **all three** gates:
+
+1. **Category exclusivity** — solves a category no existing plugin in
+   our set already solves.
+2. **Differentiator** — uses multi-agent capability OR token-grading
+   as its core mechanic. If neither, it's not for us.
+3. **Context budget** — meets the per-skill budget (80–100 word
+   description, <200-line body) and follows the pushy template.
+
+Failing any gate, it doesn't ship. The bar is not "is this useful?"
+The bar is "does the marketplace get sharper, smaller, or more
+opinionated with this added?" If not, the answer is no — even for
+genuinely useful skills.
+
+This is the quality bar in one rule: **every plugin must justify the
+context it costs every user on every turn.**
