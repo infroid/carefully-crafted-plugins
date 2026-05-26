@@ -141,9 +141,21 @@ function timestamp() {
 function main() {
   const argv = process.argv.slice(2);
   const useStdin = argv.includes("--stdin");
+
+  // --cwd is honored in both modes. Pull it out of argv first so the
+  // stdin path can still see it.
+  let cwdOverride = null;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--cwd") {
+      cwdOverride = argv[i + 1];
+      argv.splice(i, 2);
+      i--;
+    }
+  }
+
   let plan = useStdin ? readStdin() : parseFlagArgs(argv);
   if (!plan) plan = readStdin();
-  const cwd = plan._cwd || process.cwd();
+  const cwd = cwdOverride || plan._cwd || process.cwd();
   delete plan._cwd;
 
   // Add a created_at timestamp + format version

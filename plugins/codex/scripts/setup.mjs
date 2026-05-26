@@ -154,6 +154,7 @@ For each finding, in priority order:
 const GITIGNORE_ENTRIES = [
   "docs/carefully-crafted-plugins/handoffs/",
   "docs/carefully-crafted-plugins/output/",
+  "docs/carefully-crafted-plugins/triage/",
 ];
 
 function checkCodexInstalled() {
