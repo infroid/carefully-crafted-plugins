@@ -11,7 +11,7 @@ installed skill's frontmatter lives in Claude's preamble on every turn:
 
 | Element | Budget |
 |---|---|
-| Frontmatter `description` | 80–100 words (hard ceiling 120) |
+| Frontmatter `description` | 30–120 words. Aim tight: pushy beats verbose. The minimum is "enough triggers + a closing claim"; the maximum is the hard ceiling. |
 | `SKILL.md` body | <200 lines (hard ceiling 250) |
 | `references/*.md` | unlimited — loaded on demand |
 | `scripts/*` | unlimited — never in context |

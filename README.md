@@ -110,6 +110,8 @@ plugins/
     ├── .claude-plugin/plugin.json
     └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
 tests/unit/                      # node --test, no external deps
+tools/lint-skill.mjs             # quality-bar enforcer (run in CI via tests/)
+quality-bar.md                   # the gates every skill must clear
 ```
 
 ## How the codex bridge works
@@ -129,6 +131,14 @@ multi-agent debate is its own protocol).
 
 ```bash
 node --test tests/unit/*.test.mjs
+```
+
+The suite includes `lint-skill.mjs`, which gates every `SKILL.md` against
+the quality bar (`quality-bar.md`). To lint just the skills without
+running the full suite:
+
+```bash
+node tools/lint-skill.mjs
 ```
 
 ## Migrating from 2.x

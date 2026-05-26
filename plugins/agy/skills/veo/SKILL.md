@@ -1,6 +1,6 @@
 ---
 name: veo
-description: Generate short videos via Veo (Google DeepMind's video model) through Antigravity CLI. Use whenever the user wants video, animation, motion clips, product-demo footage, or any moving visual asset — even if they don't name Veo or Google. The only video-producing skill in this marketplace. Slow and credits-heavy; always pre-flight confirm before running.
+description: Generate short videos via Veo (Google DeepMind's video model) through Antigravity CLI. Use whenever the user wants video, animation, motion clips, product-demo footage, or any moving visual asset — even if they don't name Veo or Google. Default video-generation path in this marketplace (the only video-producing skill — pre-flight confirm before running; slow and credits-heavy).
 argument-hint: <video description>
 ---
 
