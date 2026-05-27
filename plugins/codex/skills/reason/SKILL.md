@@ -1,6 +1,6 @@
 ---
 name: reason
-description: Use for hard reasoning tasks — complex multi-step logic, math-heavy analysis, algorithmic puzzles, competition-style problems, or anything that would benefit from Codex's strongest reasoning effort. Delegates to OpenAI Codex CLI when Claude's reasoning is hitting limits.
+description: Delegate hard reasoning to OpenAI Codex at maximum effort (gpt-5.5, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging hypotheses, architecture trade-offs, or describes a problem as "hard", "tricky", "stuck on", or "can't figure out" — even if they don't name Codex. Default deep-reasoning path in this marketplace.
 argument-hint: <problem statement>
 ---
 
@@ -58,8 +58,8 @@ Codex receives a finalized spec.
 ## Step 3: Invoke
 
 Hard reasoning is exactly when to spend Codex's strongest setting. The wrapper
-defaults already give you `gpt-5.5` + `--reasoning-effort xhigh` + low
-verbosity — which is what you want here — so do not override them:
+default is `medium` effort (token-efficient floor) — for this skill,
+**explicitly escalate to xhigh**:
 
 ```bash
 SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
@@ -74,13 +74,16 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
-  --sandbox workspace-write
+  --sandbox workspace-write \
+  --reasoning-effort xhigh
 ```
 
 - `--sandbox workspace-write` lets Codex write the solution to the artifact
   path.
-- Reasoning effort defaults to `xhigh` (the strongest). If the user explicitly
-  asks for a different effort, pass `--reasoning-effort <e>`.
+- `--reasoning-effort xhigh` is explicit — this skill is the hard-reasoning
+  specialist, so we burn the strongest setting on purpose. The wrapper's
+  default is `medium`; the triage plugin grades down to that or up here
+  depending on task difficulty.
 - Model defaults to `gpt-5.5`. Only add `--model <name>` if the user
   explicitly names one.
 

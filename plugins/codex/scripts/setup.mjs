@@ -154,6 +154,8 @@ For each finding, in priority order:
 const GITIGNORE_ENTRIES = [
   "docs/carefully-crafted-plugins/handoffs/",
   "docs/carefully-crafted-plugins/output/",
+  "docs/carefully-crafted-plugins/triage/",
+  "docs/carefully-crafted-plugins/forge/",
 ];
 
 function checkCodexInstalled() {
@@ -271,7 +273,7 @@ function explicitSetup() {
   console.log("Next steps:");
   console.log("  1. Edit docs/carefully-crafted-plugins/constraints/*.md to encode your standards.");
   console.log("  2. Edit docs/carefully-crafted-plugins/output-formats/*.md to define output contracts.");
-  console.log("  3. Try /codex:image or /codex:reason on a real task.");
+  console.log("  3. Try /codex:imagegen or /codex:reason on a real task.");
 }
 
 function main() {

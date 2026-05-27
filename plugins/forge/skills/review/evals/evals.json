@@ -1,0 +1,45 @@
+{
+  "skill_name": "review",
+  "skill_path": "plugins/forge/skills/review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review my changes on the jwt-migration branch",
+      "expected_outcome": "Claude does an in-context pass (Step 1), invokes /codex:review for fresh eyes (Step 2), invokes /agy:longctx for orthogonal regression scan (Step 3), synthesizes a Block/Consider/Nit report with Consensus + Unique sections.",
+      "assertions": [
+        {
+          "name": "three_passes",
+          "type": "command-trace",
+          "description": "all three: in-context (Claude), codex:review, and agy:longctx are exercised"
+        },
+        {
+          "name": "synthesis_structure",
+          "type": "artifact-content",
+          "description": "review artifact includes Block/Consider/Nit + Consensus + Unique sections"
+        },
+        {
+          "name": "false_positives_section",
+          "type": "artifact-content",
+          "description": "review includes a False positives section noting verified non-bugs"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review my one-line typo fix to README.md",
+      "expected_outcome": "Claude does the in-context pass + codex:review for fresh eyes but SKIPS agy:longctx (diff is trivially local). Notes the skipped step in the report.",
+      "assertions": [
+        {
+          "name": "no_agy_longctx",
+          "type": "command-trace",
+          "description": "agy:longctx is NOT invoked for a trivial 1-file diff"
+        },
+        {
+          "name": "skip_disclosed",
+          "type": "artifact-content",
+          "description": "report explicitly notes the long-context scan was skipped as not warranted"
+        }
+      ]
+    }
+  ]
+}

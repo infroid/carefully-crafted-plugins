@@ -1,8 +1,8 @@
 {
   "name": "codex",
-  "version": "2.1.0",
-  "description": "Delegate tasks to OpenAI Codex CLI from Claude Code via a structured 5-section handoff spec: image generation, hard reasoning offload, code review, headless browser, session resume, and a raw passthrough escape hatch.",
+  "version": "3.1.0",
+  "description": "OpenAI Codex CLI bridge for Claude Code: hard reasoning (xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec on every call. Default effort lowered to medium for token efficiency; the triage plugin escalates per task.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
-  "keywords": ["codex", "openai", "bridge", "image-generation", "code-review", "delegation"]
+  "keywords": ["codex", "openai", "bridge", "imagegen", "code-review", "playwright", "delegation"]
 }

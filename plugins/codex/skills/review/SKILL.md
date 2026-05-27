@@ -1,6 +1,6 @@
 ---
 name: review
-description: Use for code review, codebase analysis, and refactoring — have OpenAI Codex review a diff or file set, audit for bugs and smells, or apply a refactor. Delegates to Codex CLI, whose core strength is working over real code.
+description: Delegate code review and refactoring to OpenAI Codex. Use whenever the user wants a code review, audit, security check, bug hunt, refactor, or an independent second opinion on a diff or file set — even if they don't name Codex. Default code-review path in this marketplace.
 argument-hint: <review target or refactor brief>
 ---
 
@@ -79,11 +79,17 @@ SPEC_PATH=$(node ${CLAUDE_PLUGIN_ROOT}/scripts/spec-builder.mjs \
 
 node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   --spec-path "$SPEC_PATH" \
-  --sandbox read-only
+  --sandbox read-only \
+  --reasoning-effort high
 ```
 
 To apply a refactor, set `--role "Refactoring agent"` and
 `--sandbox workspace-write` instead (only after confirming in Step 2).
+
+`--reasoning-effort high` is explicit — code review wants strong reasoning
+over the wrapper's `medium` default. The `triage` plugin can grade
+individual reviews up to `xhigh` for genuinely hard audits, or down to
+`medium` for trivial diffs.
 
 ## Step 4: Report
 

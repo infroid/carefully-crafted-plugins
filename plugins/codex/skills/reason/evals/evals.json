@@ -1,0 +1,57 @@
+{
+  "skill_name": "reason",
+  "skill_path": "plugins/codex/skills/reason",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm stuck on this DP problem: given an array of n integers, find the longest subarray whose sum equals zero in O(n) time. Walk me through the approach.",
+      "expected_outcome": "Claude writes a spec naming the problem with full inputs/expected outputs/constraints; invokes codex-invoke.mjs with --reasoning-effort xhigh explicitly (this skill is the hard-reasoning specialist and explicitly opts above the medium floor).",
+      "assertions": [
+        {
+          "name": "xhigh_effort_explicit",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --reasoning-effort xhigh (explicit, not relying on wrapper default)"
+        },
+        {
+          "name": "spec_complete",
+          "type": "spec-content",
+          "description": "spec's Task field includes problem statement, constraints (O(n)), and any edge cases"
+        },
+        {
+          "name": "critical_eval_after",
+          "type": "conversation",
+          "description": "Claude applies critical-evaluation.md after Codex returns — flags any disagreement with its own prior reasoning"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Why does my service tail-latency p99 spike every 30 seconds? Here's the metric chart and the code.",
+      "expected_outcome": "Claude treats this as a hard-reasoning task (combinatorial root-cause), writes a spec with the chart and code attached, invokes Codex at xhigh.",
+      "assertions": [
+        {
+          "name": "xhigh_effort_explicit",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --reasoning-effort xhigh"
+        },
+        {
+          "name": "spec_includes_evidence",
+          "type": "spec-content",
+          "description": "spec's Task includes the symptom description and any provided evidence (metrics, code paths)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Just answer me directly — what's the time complexity of quicksort?",
+      "expected_outcome": "Claude does NOT delegate. This is a trivia question the model answers from memory; delegating wastes tokens.",
+      "assertions": [
+        {
+          "name": "no_delegation",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs is NOT invoked — Claude answers inline"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
-name: image
-description: Generate raster images using Google's Nano Banana Pro (Imagen-class) model via Antigravity CLI — icons, illustrations, mockups, photos, hero images, UI assets. An alternative image-generation route to /codex:image (which uses OpenAI's gpt-image-2). Slash-command only so it does not compete with /codex:image for auto-triggers — pick this when you specifically want Google's image model.
+name: nanobanana
+description: Generate raster images via Google's Nano Banana Pro (Antigravity CLI). Slash-command only — pick this when the user explicitly asks for Google's image model, Nano Banana, or lives in the Google ecosystem. For default image generation prefer /codex:imagegen.
 argument-hint: <image description>
 ---
 
@@ -12,15 +12,15 @@ Claude Code cannot natively produce raster images.
 
 Two image bridges exist in this marketplace; pick deliberately:
 
-- `/codex:image` — OpenAI's `gpt-image-2`, with the structured 5-section
-  handoff, constraint/design-system files, and audit trail.
-- `/agy:image` (this skill) — Google's Nano Banana Pro, light and direct.
+- `/codex:imagegen` — OpenAI's `gpt-image-2` (default), with the structured
+  5-section handoff, constraint/design-system files, and audit trail.
+- `/agy:nanobanana` (this skill) — Google's Nano Banana Pro, light and direct.
   Reach for it when the user wants Google's image-model style, has Antigravity
   credentials configured, or is already in the Google ecosystem.
 
 ## Your input
 
-When invoked as `/agy:image <description>`, the user's text arrives as
+When invoked as `/agy:nanobanana <description>`, the user's text arrives as
 `$ARGUMENTS` — that is the visual brief. Write it the way a designer briefs
 an illustrator: subject, mood, composition, what it should evoke.
 

@@ -14,7 +14,9 @@
 //                            (current frontier coding model on the account).
 //                            Override with --model or CODEX_MODEL.
 //   --reasoning-effort <e>   One of: low | medium | high | xhigh.
-//                            Default: xhigh (strongest available).
+//                            Default: medium (token-efficient floor — the
+//                            triage plugin escalates to high/xhigh when a
+//                            task is graded hard).
 //   --verbosity <v>          One of: low | medium | high. Default: low.
 //                            Translated to `-c model_verbosity=<v>` for codex.
 //   --sandbox <mode>         read-only | workspace-write | danger-full-access.
@@ -31,7 +33,7 @@
 //   CODEX_BIN                path to the codex binary, default "codex"
 //   CODEX_SANDBOX            default sandbox mode, default "read-only"
 //   CODEX_MODEL              default model (built-in default: gpt-5.5)
-//   CODEX_REASONING_EFFORT   default reasoning effort (built-in default: xhigh)
+//   CODEX_REASONING_EFFORT   default reasoning effort (built-in default: medium)
 //   CODEX_VERBOSITY          default model verbosity (built-in default: low)
 //   CODEX_VERBOSE            "1" to force verbose stderr streaming (orthogonal
 //                            to CODEX_VERBOSITY — this controls *our* trace
@@ -50,10 +52,12 @@ const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const VERBOSITIES = new Set(["low", "medium", "high"]);
 const SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
-// Built-in defaults: best model, highest reasoning effort, lowest verbosity.
-// Skill-level flags or env vars override these.
+// Built-in defaults: best model, medium reasoning effort, lowest verbosity.
+// `medium` is the token-efficient floor — the triage plugin escalates to
+// `high` or `xhigh` when a task is graded hard. Direct callers can still
+// override with --reasoning-effort or CODEX_REASONING_EFFORT.
 const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_REASONING_EFFORT = "xhigh";
+const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_VERBOSITY = "low";
 
 function parseArgs(argv) {

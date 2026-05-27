@@ -1,6 +1,6 @@
 ---
-name: browser
-description: Use for headless browser automation, web scraping, page screenshots, form filling, end-to-end test execution, or any task requiring a real Chromium runtime. Delegates to OpenAI Codex CLI which ships a Playwright skill.
+name: playwright
+description: Drive headless Chromium via Playwright through OpenAI Codex CLI. Use whenever the user wants browser automation, web scraping, page screenshots, form filling, end-to-end test runs, or any task needing a real browser runtime — even if they don't name Playwright, Codex, or browsers explicitly. Default browser-automation path in this marketplace.
 argument-hint: <browser task description>
 ---
 
@@ -17,7 +17,7 @@ Note: Claude Code can also drive headless Chrome via the `claude-in-chrome` MCP.
 
 ## Your input
 
-When invoked as `/codex:browser <task>`, the user's text arrives as
+When invoked as `/codex:playwright <task>`, the user's text arrives as
 `$ARGUMENTS` — treat it as the browser task that becomes the **Task** in
 Step 1. When this skill auto-triggers from conversation instead, assemble the
 same task description from the surrounding context.

@@ -1,6 +1,6 @@
 ---
-name: longcontext
-description: Use for repo-wide or document-wide analysis that exceeds Claude Code's context — code audits across an entire monorepo, reviews of huge specs or whole books, refactor-impact analyses spanning hundreds of files. Delegates to Google's Antigravity CLI (agy), which runs on Gemini 3 Pro's 1M-token context window (up to 2M enterprise) — roughly 5× what Claude Code can hold.
+name: longctx
+description: Audit code at 1M-token scale via Gemini 3 Pro through Antigravity CLI. Use whenever the user asks about cross-file impact, whole-repo audits, finding all callsites, refactor blast radius, regression risk, or anything needing more code than Claude can fit — even if they don't name Gemini, Antigravity, or long context. Default whole-repo analysis path in this marketplace.
 argument-hint: <analysis task — include @paths or @globs to pull in>
 ---
 
@@ -17,7 +17,7 @@ skill exists for what you cannot.
 
 ## Your input
 
-When invoked as `/agy:longcontext <task>`, the user's text arrives as
+When invoked as `/agy:longctx <task>`, the user's text arrives as
 `$ARGUMENTS` — that is the analysis task. Add the `@` context references
 yourself: paths, directories, or globs Antigravity should pull in.
 

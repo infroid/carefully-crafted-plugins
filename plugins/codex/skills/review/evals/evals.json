@@ -1,0 +1,55 @@
+{
+  "skill_name": "review",
+  "skill_path": "plugins/codex/skills/review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit src/auth.ts for security bugs and race conditions",
+      "expected_outcome": "Claude writes a spec naming the files + 'good' criteria (correctness, security, performance), invokes codex-invoke.mjs with --sandbox read-only and --reasoning-effort high.",
+      "assertions": [
+        {
+          "name": "sandbox_read_only",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --sandbox read-only (audit, no changes applied)"
+        },
+        {
+          "name": "effort_high",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --reasoning-effort high (review opts above the medium floor)"
+        },
+        {
+          "name": "spec_names_files",
+          "type": "spec-content",
+          "description": "spec's Task field lists the exact files under review"
+        },
+        {
+          "name": "constraints_include_security",
+          "type": "spec-content",
+          "description": "spec's Constraints reference docs/carefully-crafted-plugins/constraints/security.md"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Refactor src/utils/parser.ts to use the new AST helpers from src/ast/. Apply the changes directly.",
+      "expected_outcome": "Claude pre-flights to confirm 'apply' vs 'review', then invokes codex-invoke.mjs with --sandbox workspace-write and Role 'Refactoring agent'.",
+      "assertions": [
+        {
+          "name": "preflight_apply_confirmation",
+          "type": "conversation",
+          "description": "Claude confirms apply-mode with the user before passing workspace-write"
+        },
+        {
+          "name": "sandbox_workspace_write",
+          "type": "command-trace",
+          "description": "codex-invoke.mjs receives --sandbox workspace-write (refactor applies changes)"
+        },
+        {
+          "name": "role_refactoring_agent",
+          "type": "spec-content",
+          "description": "spec's Role is 'Refactoring agent' not 'Code reviewer'"
+        }
+      ]
+    }
+  ]
+}

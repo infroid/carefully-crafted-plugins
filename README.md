@@ -4,9 +4,11 @@
 [![License](https://img.shields.io/github/license/infroid/carefully-crafted-plugins)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/infroid/carefully-crafted-plugins)](https://github.com/infroid/carefully-crafted-plugins/stargazers)
 
-A Claude Code marketplace of bridges between coding agents. Stay in your
-Claude Code session and reach for the strongest tool per task — OpenAI
-Codex, Google Antigravity, or all three at once in a multi-agent debate.
+A small, opinionated set of multi-agent plugins for Claude Code. Bridges
+to OpenAI Codex and Google Antigravity, a Delphi debate primitive,
+token-efficient task triage, and a seven-phase software lifecycle —
+sufficient for every capability worth multi-agenting, deliberately
+lightweight by construction.
 
 ## What you can delegate
 
@@ -22,12 +24,12 @@ Codex CLI fills several capability gaps from Claude Code:
 - Raw `codex exec` passthrough
 
 ```
-/codex:image  generate a 256x256 todo app icon
-/codex:reason solve this dynamic programming problem ...
-/codex:review audit src/auth for security bugs
-/codex:browser scrape product titles from https://example.com/store
-/codex:exec   <any raw prompt to codex>
-/codex:resume <follow-up for the most recent Codex session>
+/codex:imagegen   generate a 256x256 todo app icon
+/codex:reason     solve this dynamic programming problem ...
+/codex:review     audit src/auth for security bugs
+/codex:playwright scrape product titles from https://example.com/store
+/codex:exec       <any raw prompt to codex>
+/codex:resume     <follow-up for the most recent Codex session>
 ```
 
 ### `agy` — Google Antigravity CLI
@@ -42,9 +44,9 @@ brings capabilities Claude Code lacks:
 - Raw `agy -p` passthrough
 
 ```
-/agy:longcontext audit @src/ and @packages/ for callsites that bypass requireAuth
-/agy:image       generate a 256x256 todo icon using Google's Nano Banana Pro
-/agy:video       generate a 6-second product demo showing the hero feature
+/agy:longctx     audit @src/ and @packages/ for callsites that bypass requireAuth
+/agy:nanobanana  generate a 256x256 todo icon using Google's Nano Banana Pro
+/agy:veo         generate a 6-second product demo showing the hero feature
 /agy:exec        <any raw prompt to agy>
 ```
 
@@ -59,6 +61,38 @@ and remaining disagreements.
 /contexthub:converge should we move auth from session cookies to JWTs?
 ```
 
+### `triage` — token-efficient task grading
+
+Grade a task low/medium/hard before delegating. The codex bridge now
+defaults to `medium` reasoning effort instead of `xhigh` — `triage`
+escalates only when difficulty warrants it. Spend the big effort where
+it matters; save tokens on the rest.
+
+```
+/triage:grade audit src/auth.ts for race conditions
+```
+
+Writes a routing plan to `docs/carefully-crafted-plugins/triage/` that
+downstream specialists read to set their effort.
+
+### `forge` — the multi-agent software lifecycle
+
+Seven phases that route every step to the strongest specialist. What
+Superpowers does, with three minds.
+
+```
+/forge:spec   <rough idea>           # spec refinement, debate-aware
+/forge:plan   <spec path>            # plan + codex stress-test + agy coverage
+/forge:tdd    <plan path>            # RED-GREEN-REFACTOR; codex on stuck subproblems
+/forge:review <branch>               # three-way: Claude + codex + agy
+/forge:verify <branch>               # tests + playwright + blast-radius scan
+/forge:debug  <symptom>              # triangulate root cause across three agents
+/forge:ship   <hint>                 # commit message, retro, push (with consent)
+```
+
+Each phase writes an artifact to `docs/carefully-crafted-plugins/forge/<phase>/`
+for full audit-trail.
+
 ## Install
 
 In Claude Code:
@@ -68,6 +102,8 @@ In Claude Code:
 /plugin install codex@carefully-crafted-plugins
 /plugin install agy@carefully-crafted-plugins
 /plugin install contexthub@carefully-crafted-plugins
+/plugin install triage@carefully-crafted-plugins
+/plugin install forge@carefully-crafted-plugins
 ```
 
 The codex bridge auto-scaffolds `docs/carefully-crafted-plugins/` standards
@@ -93,7 +129,7 @@ or refresh the starter files later.
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{image,reason,review,browser,exec,resume,setup}/SKILL.md
+│   ├── skills/{imagegen,reason,review,playwright,exec,resume,setup}/SKILL.md
 │   ├── reference/critical-evaluation.md
 │   └── scripts/
 │       ├── spec-builder.mjs     # writes the 5-section spec
@@ -103,12 +139,25 @@ plugins/
 │       └── output-schema.json
 ├── agy/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{longcontext,image,video,exec}/SKILL.md
+│   ├── skills/{longctx,nanobanana,veo,exec}/SKILL.md
 │   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
-└── contexthub/
+├── contexthub/
+│   ├── .claude-plugin/plugin.json
+│   └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
+├── triage/
+│   ├── .claude-plugin/plugin.json
+│   ├── skills/grade/SKILL.md    # difficulty grading + routing plan
+│   └── scripts/triage-write.mjs # writes the JSON artifact
+└── forge/
     ├── .claude-plugin/plugin.json
-    └── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
+    ├── skills/{spec,plan,tdd,review,verify,debug,ship}/SKILL.md
+    └── scripts/forge-write.mjs  # writes phase artifacts
 tests/unit/                      # node --test, no external deps
+tools/
+├── lint-skill.mjs               # quality-bar enforcer (run in CI via tests/)
+└── eval-check.mjs               # evals.json structural validator
+quality-bar.md                   # the gates every skill must clear
+CHANGELOG.md                     # version history + release checklist
 ```
 
 ## How the codex bridge works
@@ -129,6 +178,35 @@ multi-agent debate is its own protocol).
 ```bash
 node --test tests/unit/*.test.mjs
 ```
+
+The suite includes `lint-skill.mjs` (gates every `SKILL.md` against
+`quality-bar.md`) and `eval-check.mjs` (validates every `evals/evals.json`
+structure). To run them standalone:
+
+```bash
+node tools/lint-skill.mjs    # SKILL.md quality bar
+node tools/eval-check.mjs    # evals.json structural validation
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and the release
+checklist.
+
+## Migrating from 2.x
+
+Skill names were tightened in 3.0.0 to remove cross-plugin collisions
+(both `codex` and `agy` previously had a skill called `image`). The
+renames:
+
+| Old | New |
+|---|---|
+| `/codex:image` | `/codex:imagegen` |
+| `/codex:browser` | `/codex:playwright` |
+| `/agy:image` | `/agy:nanobanana` |
+| `/agy:video` | `/agy:veo` |
+| `/agy:longcontext` | `/agy:longctx` |
+
+`/codex:reason`, `/codex:review`, `/codex:exec`, `/codex:resume`,
+`/codex:setup`, `/agy:exec`, and `/contexthub:converge` are unchanged.
 
 ## License
 
