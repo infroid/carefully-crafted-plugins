@@ -12,7 +12,7 @@
     {
       "name": "codex",
       "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call. Default effort is medium; triage escalates per task.",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"

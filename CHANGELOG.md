@@ -23,11 +23,15 @@ Marketplace bumped to 4.0.0; two new plugins added.
 
 **Existing plugin changes**
 
-- **`codex` 3.0.0 → 3.1.0** — default reasoning effort lowered from
-  `xhigh` to `medium`. `codex:reason` opts back into `xhigh`
-  explicitly; `codex:review` opts into `high`. Other skills inherit
-  the new medium floor. Direct callers can still override with
-  `--reasoning-effort` or `CODEX_REASONING_EFFORT`.
+- **`codex` 3.0.0 → 3.1.1**
+  - 3.1.0: default reasoning effort lowered from `xhigh` to `medium`.
+    `codex:reason` opts back into `xhigh` explicitly; `codex:review`
+    opts into `high`. Other skills inherit the new medium floor.
+    Direct callers can still override with `--reasoning-effort` or
+    `CODEX_REASONING_EFFORT`.
+  - 3.1.1: `codex-invoke.mjs` now rejects empty `--spec-path ""` and
+    `--spec-path <directory>` instead of silently building a prompt
+    that points at cwd. Surfaced by end-to-end testing pre-release.
 
 **Infrastructure**
 
