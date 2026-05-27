@@ -150,6 +150,91 @@ Moats already too deep:
 | 4 | Submit to Trail of Bits, list on aggregators, positioning README rewrite |
 | 5–8 | Ship `bench`, then `echo`, then `hush`. Each compounds on the previous. |
 
+## Post-release: items that live outside this repo
+
+Tracks of work that can't be completed from inside the repo — they need
+GitHub PRs to third parties, paid services, or real API credentials.
+Captured here so they don't get lost.
+
+### Submit to trailofbits/skills-curated
+
+Trail of Bits maintains a security-reviewed marketplace. Submission is
+the strongest trust signal in the ecosystem. Their process: open a PR
+to [trailofbits/skills-curated](https://github.com/trailofbits/skills-curated)
+listing this marketplace as a new entry. They review every line of
+hooks/scripts before merging.
+
+Required artifacts (already present in this repo):
+- `quality-bar.md`
+- `tools/lint-skill.mjs` and CI integration
+- Tests covering bridge scripts
+- README documenting installation + security model
+
+Effort: ~1 day of PR back-and-forth.
+
+### List on aggregator marketplaces
+
+Three audiences worth chasing:
+
+- **[claudemarketplaces.com](https://claudemarketplaces.com/)** — the
+  default discovery surface; auto-pulls from GitHub stars + install count.
+  Action: get GitHub stars (organic + share).
+- **[agentskills.io](https://agentskills.io)** — the open standard
+  registry. Action: submit per their listing instructions.
+- **Skills.sh** (Vercel-backed) — npm-style package manager for skills.
+  Action: submit via their CLI / web flow.
+
+Effort: ~2 hours each, mostly metadata + screenshots.
+
+### Build a real eval runner
+
+The eval JSON files in every `evals/evals.json` are *specifications*
+today — `tools/eval-check.mjs` validates their structure but nothing
+actually runs them. A real runner would:
+
+1. Spawn a fresh Claude Code session (or use the Agent SDK).
+2. Present each eval's prompt; collect Claude's trace (commands run,
+   files written, files read).
+3. Evaluate each assertion against the trace:
+   - `command-trace` → grep recorded argv
+   - `spec-content` / `artifact-content` → grep written files
+   - `artifact` → JSON.parse + assert path-values
+   - `file-exists` → fs.existsSync against patterns
+   - `conversation` → regex match Claude's reply
+4. Aggregate to `benchmark.json` per Anthropic's spec — pass rate,
+   time, tokens (mean ± stddev).
+5. Generate a viewer for human review per Anthropic's recommendation.
+
+Effort: ~1 week for a v1. Requires Claude SDK creds + a sandboxed
+runner to record subprocess invocations. Could ship as a separate
+`tools/eval-run.mjs` plus a small `evals/`-only CI workflow.
+
+### Build `bench` data
+
+Run the same prompts through Claude, Codex, and Antigravity on real
+codebases. Capture per-agent: token spend, wall time, correctness
+(graded by a fourth agent or by humans). Publish as a benchmark page.
+
+This is the concrete proof for the marketplace's positioning ("the
+right specialist per phase"). Without it, the positioning is a claim;
+with it, the positioning is a fact.
+
+Effort: ~2 weeks. Needs all three CLIs authenticated, a set of public
+benchmark tasks, and a results-publishing pipeline.
+
+### Stars, posts, and the positioning push
+
+Once the v4.0.0 release is out and the eval runner works:
+
+- Write a positioning post: "The Multi-Agent Software Lifecycle for
+  Claude Code." Pin on README, share on HN, Reddit r/ClaudeAI,
+  Twitter, X.
+- Submit to weekly Claude/AI newsletters (Anthropic's, AI Code Tools).
+- Demo video showing `forge:spec → plan → tdd → review → verify → ship`
+  on a real feature.
+
+Effort: ~1 day for the post; demo video is its own project.
+
 ## Sources
 
 - [Anthropic — Equipping agents with Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills)

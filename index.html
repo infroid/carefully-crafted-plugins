@@ -619,11 +619,13 @@
         <div class="hero__inner">
           <div>
             <p class="eyebrow">Claude Code marketplace</p>
-            <h1 id="hero-heading">Bridge work to the right coding agent.</h1>
+            <h1 id="hero-heading">The multi-agent software lifecycle.</h1>
             <p class="lede">
-              carefully-crafted-plugins lets a Claude Code session delegate work to
-              OpenAI Codex and Google Antigravity — reaching for the strongest tool
-              per task without leaving your terminal.
+              A small, opinionated set of plugins. Claude orchestrates,
+              OpenAI Codex executes hard reasoning, Google Antigravity sees
+              the whole repo. Every task graded for difficulty, every phase
+              routed to the strongest specialist. What Superpowers does —
+              with three minds.
             </p>
             <div class="hero__actions">
               <a class="button button--primary" href="#install">Install</a>
@@ -639,13 +641,13 @@
       <section class="section" id="bridges" aria-labelledby="bridges-heading">
         <div class="section__inner">
           <div class="section__header">
-            <p class="eyebrow">Bridge plugins</p>
-            <h2 id="bridges-heading">One session, different engines.</h2>
+            <p class="eyebrow">Five plugins, deliberately small</p>
+            <h2 id="bridges-heading">Capability primitives + a lifecycle that orchestrates them.</h2>
             <p class="section__summary">
-              Two bridges and a converger: a structured Codex bridge, a light
-              Antigravity CLI bridge, and a four-phase debate that runs all three
-              together for hard prompts. Reach for whichever fits — without leaving
-              your Claude Code session.
+              Three capability primitives (codex, agy, contexthub) you can
+              call directly. A token-efficient triage that grades every task
+              before delegation. And forge — a seven-phase lifecycle that
+              routes each phase to the right specialist.
             </p>
           </div>
 
@@ -717,6 +719,49 @@
                   </div>
                 </div>
               </article>
+
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status">Available</span>
+                  <div class="bridge__name">triage</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    Grade every task low / medium / hard before delegation, and
+                    write a routing plan that downstream specialists read to set
+                    their model effort. The token-efficiency primitive — spend
+                    big effort only on hard work, not by default on everything.
+                  </p>
+                  <div class="chips" aria-label="Triage commands">
+                    <code>/triage:grade</code>
+                  </div>
+                </div>
+              </article>
+
+              <article class="bridge">
+                <div>
+                  <span class="bridge__status">Available</span>
+                  <div class="bridge__name">forge</div>
+                </div>
+                <div>
+                  <p class="bridge__body">
+                    The multi-agent software lifecycle: spec, plan, tdd, review,
+                    verify, debug, ship. Seven phases, each routing to the
+                    strongest specialist (Claude, Codex, Antigravity, contexthub)
+                    and graded for difficulty by triage. Every phase writes an
+                    audit artifact to disk.
+                  </p>
+                  <div class="chips" aria-label="Forge commands">
+                    <code>/forge:spec</code>
+                    <code>/forge:plan</code>
+                    <code>/forge:tdd</code>
+                    <code>/forge:review</code>
+                    <code>/forge:verify</code>
+                    <code>/forge:debug</code>
+                    <code>/forge:ship</code>
+                  </div>
+                </div>
+              </article>
             </div>
           </div>
         </div>
@@ -726,10 +771,11 @@
         <div class="section__inner">
           <div class="section__header section__header--center">
             <p class="eyebrow">Capabilities</p>
-            <h2 id="capabilities-heading">What you can delegate.</h2>
+            <h2 id="capabilities-heading">What each plugin covers.</h2>
             <p class="section__summary">
-              Pick the bridge that matches the task. Each one is a thin layer over
-              a real CLI — the heavy lifting happens in the external agent.
+              Three capability primitives are thin layers over real CLIs.
+              Triage is the token-efficiency primitive. Forge is the
+              lifecycle that calls every other plugin at the right phase.
             </p>
           </div>
 
@@ -738,12 +784,12 @@
               <h3>codex</h3>
               <p>OpenAI Codex CLI.</p>
               <ul class="step__list">
-                <li>Image generation (gpt-image-2)</li>
-                <li>Hard reasoning at high effort</li>
-                <li>Code review &amp; refactoring</li>
+                <li>Hard reasoning at xhigh (gpt-5.5)</li>
+                <li>Code review &amp; refactoring at high</li>
                 <li>Headless browser (Playwright)</li>
+                <li>Image generation (gpt-image-2)</li>
                 <li>Session resume</li>
-                <li>Raw exec passthrough</li>
+                <li>Raw exec — default effort medium</li>
               </ul>
             </article>
             <article class="step">
@@ -766,6 +812,29 @@
                 <li>Synthesizes consensus + remaining disagreements</li>
               </ul>
             </article>
+            <article class="step">
+              <h3>triage</h3>
+              <p>Token-efficient task grading.</p>
+              <ul class="step__list">
+                <li>Decomposes a task into single or subtasks</li>
+                <li>Grades each low / medium / hard</li>
+                <li>Suggests specialist + model effort per task</li>
+                <li>Writes a JSON routing plan to disk</li>
+              </ul>
+            </article>
+            <article class="step">
+              <h3>forge</h3>
+              <p>The multi-agent software lifecycle.</p>
+              <ul class="step__list">
+                <li>spec — refine ideas, debate when contested</li>
+                <li>plan — Claude drafts, Codex stress-tests, agy verifies coverage</li>
+                <li>tdd — RED/GREEN/REFACTOR; Codex when stuck</li>
+                <li>review — three-way: Claude + Codex + agy</li>
+                <li>verify — tests + Playwright + blast radius</li>
+                <li>debug — triangulate root cause across three agents</li>
+                <li>ship — commit, retro, push with consent</li>
+              </ul>
+            </article>
           </div>
         </div>
       </section>
@@ -774,7 +843,7 @@
         <div class="section__inner">
           <div class="section__header">
             <p class="eyebrow">Install</p>
-            <h2 id="install-heading">Four commands in Claude Code.</h2>
+            <h2 id="install-heading">Six commands in Claude Code.</h2>
           </div>
 
           <div class="install__panel">
@@ -794,6 +863,14 @@
               <div class="command">
                 <span>4. Install contexthub</span>
                 <pre><code>/plugin install contexthub@carefully-crafted-plugins</code></pre>
+              </div>
+              <div class="command">
+                <span>5. Install triage</span>
+                <pre><code>/plugin install triage@carefully-crafted-plugins</code></pre>
+              </div>
+              <div class="command">
+                <span>6. Install forge</span>
+                <pre><code>/plugin install forge@carefully-crafted-plugins</code></pre>
               </div>
             </div>
 

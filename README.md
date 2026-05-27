@@ -153,8 +153,11 @@ plugins/
     ├── skills/{spec,plan,tdd,review,verify,debug,ship}/SKILL.md
     └── scripts/forge-write.mjs  # writes phase artifacts
 tests/unit/                      # node --test, no external deps
-tools/lint-skill.mjs             # quality-bar enforcer (run in CI via tests/)
+tools/
+├── lint-skill.mjs               # quality-bar enforcer (run in CI via tests/)
+└── eval-check.mjs               # evals.json structural validator
 quality-bar.md                   # the gates every skill must clear
+CHANGELOG.md                     # version history + release checklist
 ```
 
 ## How the codex bridge works
@@ -176,13 +179,17 @@ multi-agent debate is its own protocol).
 node --test tests/unit/*.test.mjs
 ```
 
-The suite includes `lint-skill.mjs`, which gates every `SKILL.md` against
-the quality bar (`quality-bar.md`). To lint just the skills without
-running the full suite:
+The suite includes `lint-skill.mjs` (gates every `SKILL.md` against
+`quality-bar.md`) and `eval-check.mjs` (validates every `evals/evals.json`
+structure). To run them standalone:
 
 ```bash
-node tools/lint-skill.mjs
+node tools/lint-skill.mjs    # SKILL.md quality bar
+node tools/eval-check.mjs    # evals.json structural validation
 ```
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and the release
+checklist.
 
 ## Migrating from 2.x
 
