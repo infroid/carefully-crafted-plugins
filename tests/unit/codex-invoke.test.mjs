@@ -147,6 +147,28 @@ test("invalid --sandbox exits 2", () => {
   }
 });
 
+test("empty --spec-path exits 2 (does not silently use cwd)", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--spec-path", ""], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--spec-path is empty/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--spec-path pointing at a directory exits 2", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--spec-path", ctx.dir], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /must be a file, not a directory/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
 test("--resume-last without --raw exits 2", () => {
   const ctx = setup();
   try {

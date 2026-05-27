@@ -45,7 +45,7 @@
 //   2  invocation/config error
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
@@ -240,9 +240,18 @@ async function main() {
     prompt = args["raw"];
     rawMode = true;
   } else if (typeof args["spec-path"] === "string") {
-    const specPath = resolve(args["spec-path"]);
+    const rawSpecPath = args["spec-path"].trim();
+    if (!rawSpecPath) {
+      console.error("codex-invoke: --spec-path is empty (resolve(\"\") would point at cwd)");
+      process.exit(2);
+    }
+    const specPath = resolve(rawSpecPath);
     if (!existsSync(specPath)) {
       console.error(`codex-invoke: spec file does not exist: ${specPath}`);
+      process.exit(2);
+    }
+    if (!statSync(specPath).isFile()) {
+      console.error(`codex-invoke: --spec-path must be a file, not a directory: ${specPath}`);
       process.exit(2);
     }
     prompt = `Read and execute the handoff spec at ${specPath}. Follow all referenced constraint and output-format files cited in sections 3 and 4. Return your output conforming to the JSON schema provided via --output-schema.`;
