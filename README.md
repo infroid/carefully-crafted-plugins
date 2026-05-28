@@ -1,7 +1,6 @@
 # carefully-crafted-plugins
 
 [![Release](https://img.shields.io/github/v/release/infroid/carefully-crafted-plugins)](https://github.com/infroid/carefully-crafted-plugins/releases)
-[![License](https://img.shields.io/github/license/infroid/carefully-crafted-plugins)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/infroid/carefully-crafted-plugins)](https://github.com/infroid/carefully-crafted-plugins/stargazers)
 
 A small, opinionated set of multi-agent plugins for Claude Code. Bridges
@@ -157,7 +156,6 @@ tools/
 ├── lint-skill.mjs               # quality-bar enforcer (run in CI via tests/)
 └── eval-check.mjs               # evals.json structural validator
 quality-bar.md                   # the gates every skill must clear
-CHANGELOG.md                     # version history + release checklist
 ```
 
 ## How the codex bridge works
@@ -188,9 +186,6 @@ node tools/lint-skill.mjs    # SKILL.md quality bar
 node tools/eval-check.mjs    # evals.json structural validation
 ```
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and the release
-checklist.
-
 ## Migrating from 2.x
 
 Skill names were tightened in 3.0.0 to remove cross-plugin collisions
@@ -207,7 +202,3 @@ renames:
 
 `/codex:reason`, `/codex:review`, `/codex:exec`, `/codex:resume`,
 `/codex:setup`, `/agy:exec`, and `/contexthub:converge` are unchanged.
-
-## License
-
-MIT (see [LICENSE](LICENSE)).

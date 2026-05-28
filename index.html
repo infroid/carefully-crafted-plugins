@@ -437,32 +437,13 @@
 
       .install__panel {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
-        gap: 28px;
+        grid-template-columns: 1fr;
+        gap: 20px;
         align-items: start;
       }
 
-      .command-stack {
-        display: grid;
-        gap: 12px;
-      }
-
-      .command {
-        min-width: 0;
-        padding: 20px;
-        border: 1px solid var(--hairline);
-        border-radius: var(--radius);
-        background: var(--paper);
-      }
-
-      .command span {
-        display: block;
-        margin-bottom: 11px;
-        color: var(--stone);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.11em;
-        text-transform: uppercase;
+      .install__panel pre {
+        width: 100%;
       }
 
       pre {
@@ -634,6 +615,35 @@
           </div>
           <div class="hero__art" aria-hidden="true">
             <img src="assets/hero.png" alt="" width="1672" height="941" />
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="install" aria-labelledby="install-heading">
+        <div class="section__inner">
+          <div class="section__header">
+            <p class="eyebrow">Install</p>
+            <h2 id="install-heading">Simplified Installation in Claude Code.</h2>
+          </div>
+
+          <div class="install__panel">
+            <pre><code># 1. Add the marketplace
+/plugin marketplace add https://github.com/infroid/carefully-crafted-plugins
+
+# 2. Install the plugins you want (or all five)
+/plugin install codex@carefully-crafted-plugins
+/plugin install agy@carefully-crafted-plugins
+/plugin install contexthub@carefully-crafted-plugins
+/plugin install triage@carefully-crafted-plugins
+/plugin install forge@carefully-crafted-plugins</code></pre>
+
+            <p class="install__note">
+              <strong>About codex setup</strong>
+              The codex bridge auto-scaffolds starter Markdown under
+              <code>docs/carefully-crafted-plugins/{constraints,output-formats}/</code>
+              the first time you use one of its skills. Run <code>/codex:setup</code>
+              to re-scaffold or refresh the starter files later.
+            </p>
           </div>
         </div>
       </section>
@@ -839,51 +849,6 @@
         </div>
       </section>
 
-      <section class="section" id="install" aria-labelledby="install-heading">
-        <div class="section__inner">
-          <div class="section__header">
-            <p class="eyebrow">Install</p>
-            <h2 id="install-heading">Six commands in Claude Code.</h2>
-          </div>
-
-          <div class="install__panel">
-            <div class="command-stack">
-              <div class="command">
-                <span>1. Add the marketplace</span>
-                <pre><code>/plugin marketplace add https://github.com/infroid/carefully-crafted-plugins</code></pre>
-              </div>
-              <div class="command">
-                <span>2. Install codex</span>
-                <pre><code>/plugin install codex@carefully-crafted-plugins</code></pre>
-              </div>
-              <div class="command">
-                <span>3. Install agy</span>
-                <pre><code>/plugin install agy@carefully-crafted-plugins</code></pre>
-              </div>
-              <div class="command">
-                <span>4. Install contexthub</span>
-                <pre><code>/plugin install contexthub@carefully-crafted-plugins</code></pre>
-              </div>
-              <div class="command">
-                <span>5. Install triage</span>
-                <pre><code>/plugin install triage@carefully-crafted-plugins</code></pre>
-              </div>
-              <div class="command">
-                <span>6. Install forge</span>
-                <pre><code>/plugin install forge@carefully-crafted-plugins</code></pre>
-              </div>
-            </div>
-
-            <p class="install__note">
-              <strong>About codex setup</strong>
-              The codex bridge auto-scaffolds starter Markdown under
-              <code>docs/carefully-crafted-plugins/{constraints,output-formats}/</code>
-              the first time you use one of its skills. Run <code>/codex:setup</code>
-              to re-scaffold or refresh the starter files later.
-            </p>
-          </div>
-        </div>
-      </section>
     </main>
 
     <footer class="footer">
@@ -893,7 +858,7 @@
           <span>carefully-crafted-plugins</span>
         </div>
         <p class="footer__copy">
-          MIT licensed | Built by <a href="https://github.com/raiaman15">Aman Rai</a> |
+          Built by <a href="https://github.com/raiaman15">Aman Rai</a> |
           Plugins for Claude Code
         </p>
       </div>
