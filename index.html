@@ -630,19 +630,22 @@
             <pre><code># 1. Add the marketplace
 /plugin marketplace add https://github.com/infroid/carefully-crafted-plugins
 
-# 2. Install the plugins you want (or all five)
+# 2. Install the plugins you want (or all three)
 /plugin install codex@carefully-crafted-plugins
 /plugin install agy@carefully-crafted-plugins
-/plugin install contexthub@carefully-crafted-plugins
-/plugin install triage@carefully-crafted-plugins
-/plugin install forge@carefully-crafted-plugins</code></pre>
+/plugin install contexthub@carefully-crafted-plugins</code></pre>
 
             <p class="install__note">
-              <strong>About codex setup</strong>
-              The codex bridge auto-scaffolds starter Markdown under
+              <strong>contexthub works solo — codex &amp; agy are optional</strong>
+              Every contexthub skill degrades gracefully: it detects which of
+              Claude, codex, and agy are installed and runs the richest flow
+              available, falling back to Claude-solo (with a note) rather than
+              failing. Install <code>codex</code> and <code>agy</code> as optional
+              collaborators that each skill uses when present. The codex bridge
+              auto-scaffolds starter Markdown under
               <code>docs/carefully-crafted-plugins/{constraints,output-formats}/</code>
-              the first time you use one of its skills. Run <code>/codex:setup</code>
-              to re-scaffold or refresh the starter files later.
+              the first time you use one of its skills; run <code>/codex:setup</code>
+              to re-scaffold later.
             </p>
           </div>
         </div>
@@ -651,13 +654,14 @@
       <section class="section" id="bridges" aria-labelledby="bridges-heading">
         <div class="section__inner">
           <div class="section__header">
-            <p class="eyebrow">Five plugins, deliberately small</p>
-            <h2 id="bridges-heading">Capability primitives + a lifecycle that orchestrates them.</h2>
+            <p class="eyebrow">Three plugins, deliberately small</p>
+            <h2 id="bridges-heading">Two single-agent bridges + a multi-agent hub.</h2>
             <p class="section__summary">
-              Three capability primitives (codex, agy, contexthub) you can
-              call directly. A token-efficient triage that grades every task
-              before delegation. And forge — a seven-phase lifecycle that
-              routes each phase to the right specialist.
+              Two thin bridges you can call directly — codex (OpenAI Codex)
+              and agy (Google Antigravity). And contexthub, the multi-agent
+              hub: a full software lifecycle, token-efficient triage, and the
+              Delphi converge debate — each skill degrading gracefully to
+              whichever agents are installed.
             </p>
           </div>
 
@@ -719,56 +723,24 @@
                 </div>
                 <div>
                   <p class="bridge__body">
-                    Stage a four-phase debate among Claude Code, Codex, and
-                    Antigravity on one hard prompt — independent answers, mutual
-                    critique, refinement, then synthesis. Converges on a final
-                    response that surfaces consensus and remaining disagreements.
+                    The multi-agent hub: a full software lifecycle (spec, plan,
+                    tdd, review, verify, debug, ship), token-efficient task
+                    triage, and the four-phase Delphi converge debate. Each
+                    skill degrades gracefully — it runs the richest flow across
+                    whichever of Claude, Codex, and Antigravity are installed,
+                    falling back to Claude-solo rather than failing. Works with
+                    Claude alone; codex and agy are optional collaborators.
                   </p>
                   <div class="chips" aria-label="Contexthub commands">
+                    <code>/contexthub:spec</code>
+                    <code>/contexthub:plan</code>
+                    <code>/contexthub:tdd</code>
+                    <code>/contexthub:review</code>
+                    <code>/contexthub:verify</code>
+                    <code>/contexthub:debug</code>
+                    <code>/contexthub:ship</code>
+                    <code>/contexthub:triage</code>
                     <code>/contexthub:converge</code>
-                  </div>
-                </div>
-              </article>
-
-              <article class="bridge">
-                <div>
-                  <span class="bridge__status">Available</span>
-                  <div class="bridge__name">triage</div>
-                </div>
-                <div>
-                  <p class="bridge__body">
-                    Grade every task low / medium / hard before delegation, and
-                    write a routing plan that downstream specialists read to set
-                    their model effort. The token-efficiency primitive — spend
-                    big effort only on hard work, not by default on everything.
-                  </p>
-                  <div class="chips" aria-label="Triage commands">
-                    <code>/triage:grade</code>
-                  </div>
-                </div>
-              </article>
-
-              <article class="bridge">
-                <div>
-                  <span class="bridge__status">Available</span>
-                  <div class="bridge__name">forge</div>
-                </div>
-                <div>
-                  <p class="bridge__body">
-                    The multi-agent software lifecycle: spec, plan, tdd, review,
-                    verify, debug, ship. Seven phases, each routing to the
-                    strongest specialist (Claude, Codex, Antigravity, contexthub)
-                    and graded for difficulty by triage. Every phase writes an
-                    audit artifact to disk.
-                  </p>
-                  <div class="chips" aria-label="Forge commands">
-                    <code>/forge:spec</code>
-                    <code>/forge:plan</code>
-                    <code>/forge:tdd</code>
-                    <code>/forge:review</code>
-                    <code>/forge:verify</code>
-                    <code>/forge:debug</code>
-                    <code>/forge:ship</code>
                   </div>
                 </div>
               </article>
@@ -783,9 +755,10 @@
             <p class="eyebrow">Capabilities</p>
             <h2 id="capabilities-heading">What each plugin covers.</h2>
             <p class="section__summary">
-              Three capability primitives are thin layers over real CLIs.
-              Triage is the token-efficiency primitive. Forge is the
-              lifecycle that calls every other plugin at the right phase.
+              codex and agy are thin layers over real CLIs. contexthub is the
+              multi-agent hub — a software lifecycle, task triage, and the
+              converge debate — calling the bridges at the right moment and
+              degrading to whichever agents are installed.
             </p>
           </div>
 
@@ -814,35 +787,14 @@
             </article>
             <article class="step">
               <h3>contexthub</h3>
-              <p>Multi-agent debate.</p>
+              <p>The multi-agent hub — degrades gracefully.</p>
               <ul class="step__list">
-                <li>4-phase Delphi protocol</li>
-                <li>Claude + Codex + Antigravity</li>
-                <li>Independent answers, mutual critique, refinement</li>
-                <li>Synthesizes consensus + remaining disagreements</li>
-              </ul>
-            </article>
-            <article class="step">
-              <h3>triage</h3>
-              <p>Token-efficient task grading.</p>
-              <ul class="step__list">
-                <li>Decomposes a task into single or subtasks</li>
-                <li>Grades each low / medium / hard</li>
-                <li>Suggests specialist + model effort per task</li>
-                <li>Writes a JSON routing plan to disk</li>
-              </ul>
-            </article>
-            <article class="step">
-              <h3>forge</h3>
-              <p>The multi-agent software lifecycle.</p>
-              <ul class="step__list">
-                <li>spec — refine ideas, debate when contested</li>
-                <li>plan — Claude drafts, Codex stress-tests, agy verifies coverage</li>
-                <li>tdd — RED/GREEN/REFACTOR; Codex when stuck</li>
-                <li>review — three-way: Claude + Codex + agy</li>
-                <li>verify — tests + Playwright + blast radius</li>
-                <li>debug — triangulate root cause across three agents</li>
-                <li>ship — commit, retro, push with consent</li>
+                <li>Lifecycle: spec, plan, tdd, review, verify, debug, ship</li>
+                <li>triage — grade low / medium / hard, route by effort</li>
+                <li>converge — 4-phase Delphi debate, consensus + disagreement</li>
+                <li>Routes each step to the strongest installed specialist</li>
+                <li>Runs Claude-solo when codex/agy are absent</li>
+                <li>Every phase writes an audit artifact to disk</li>
               </ul>
             </article>
           </div>
