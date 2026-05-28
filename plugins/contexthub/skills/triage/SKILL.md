@@ -23,6 +23,22 @@ When invoked as `/contexthub:triage <task>`, the user's text arrives as
 `$ARGUMENTS` — that is the task description. When this skill auto-triggers
 from conversation, assemble the same description from context.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Decompose — single or subtasks?
 
 Decompose only when scope is genuinely multi-task. A task is "single" if it:
@@ -113,6 +129,12 @@ For each task in the artifact:
 Tell the user, briefly, what you graded and why — one line per task.
 Example: *"Graded `audit src/auth.ts` as hard → routing to /codex:review
 at xhigh."*
+
+### Degradation
+
+- Only route to specialists present in the Step 0 report — never suggest
+  `/codex:*` when codex is absent; fall back to `claude` / `agy` /
+  `contexthub` as available.
 
 ## Honesty
 

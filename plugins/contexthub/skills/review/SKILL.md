@@ -17,6 +17,22 @@ When invoked as `/contexthub:review <target>`, `$ARGUMENTS` is the diff
 range (e.g. `HEAD~5..HEAD`), branch name (e.g. `contexthub/<plan-slug>`), or
 a path glob. If empty, default to `git diff origin/main...HEAD`.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Claude's in-context pass
 
 Read the diff. List findings by severity (block / consider / nit), each
@@ -49,6 +65,15 @@ review cannot match — Claude's context cannot fit the whole repo.
 
 Skip Step 3 only when the diff is tiny (<3 files) and clearly local
 (e.g. a typo fix). Otherwise spend the long-context call.
+
+### Degradation
+
+Run the reviewers present in the Step 0 report:
+
+- **all three** — Claude (in-context) + codex (fresh eyes) + agy (repo scan).
+- **no codex** — Claude + agy.
+- **no agy** — Claude + codex.
+- **count 1** — Claude solo pass only.
 
 ## Step 4: Synthesize
 

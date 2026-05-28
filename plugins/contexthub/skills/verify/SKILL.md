@@ -20,6 +20,22 @@ When invoked as `/contexthub:verify <target>`, `$ARGUMENTS` is the diff
 range, branch, or `current` (default: current branch's diff from
 `origin/main`).
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Run the test suite
 
 Run the project's test command. If it fails, STOP — report failures
@@ -57,6 +73,13 @@ Otherwise invoke `/agy:longctx`:
 
 Spot-check 2–3 of agy's findings against actual code before relaying.
 Long-context output can hallucinate; pay the verification tax.
+
+### Degradation
+
+- The **test suite** (Step 1) always runs — it is the floor regardless of agents.
+- Run **codex:playwright** UI verification (Step 2) only if codex is present.
+- Run **agy:longctx** blast-radius scan (Step 3) only if agy is present.
+- **count 1** — tests + Claude review only.
 
 ## Step 4: Synthesize a verification report
 

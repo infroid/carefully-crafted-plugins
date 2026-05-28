@@ -19,6 +19,22 @@ When invoked as `/contexthub:ship <hint>`, `$ARGUMENTS` is either a hint for
 the commit message ("auth: switch to JWT") or the literal string
 `auto` to let Claude compose one from the diff + plan + review.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Pre-flight — has /contexthub:verify run?
 
 Check `docs/carefully-crafted-plugins/lifecycle/verify/` for a recent
@@ -81,6 +97,11 @@ routine commits — the converge cost isn't justified.
 
 Append the retrospective to the commit body or a `docs/decisions/`
 entry, with the artifact path linked.
+
+### Degradation
+
+- Run the optional **converge** retro only if `externalCount >= 1`. With no
+  external agents, skip the retro and note in one line that none was possible.
 
 ## Step 5: Push — only with explicit user confirmation
 

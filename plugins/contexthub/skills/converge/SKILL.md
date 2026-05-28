@@ -43,6 +43,22 @@ When invoked as `/contexthub:converge <prompt>`, the user's text arrives as
 `$ARGUMENTS` — that is **the prompt under debate**. Refer to it as `Q`
 throughout. Keep a clean text copy of `Q` to feed into every external call.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Phase 0: Pre-flight — choose depth
 
 Before any external calls, decide depth with the user (one quick line, not a
@@ -161,3 +177,13 @@ These are **mandatory**, not optional:
 - **Do not invent positions.** If an agent's response was incoherent or
   off-topic, say so plainly rather than steel-manning it into something it
   did not say.
+
+### Degradation
+
+Scale the debate to the agents available in the Step 0 report:
+
+- **count 3** — full Delphi debate (Claude + codex + agy).
+- **count 2** — a *2-way* debate, explicitly labeled "(Claude + codex)" or
+  "(Claude + agy)" depending on which external agent is present.
+- **count 1** — a direct Claude answer, prefixed
+  "No debate possible (no external agents) —".

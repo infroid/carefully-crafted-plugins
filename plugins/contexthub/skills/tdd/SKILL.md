@@ -21,6 +21,22 @@ the plan artifact path or a specific task id ("t3") to execute. If a
 plan path, work through every task in order; if a task id, execute
 just that one.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Set up a worktree (optional but recommended)
 
 For multi-task plans, isolate the work in a git worktree so the main
@@ -70,6 +86,12 @@ Run the test suite — green stays green.
 One commit per task. Message format: `<task-id>: <plan task summary>`.
 Use the body to describe what was attempted, what worked, what
 surprised you. The commit history IS the audit trail.
+
+### Degradation
+
+- Delegate a stuck subproblem to **codex:reason** only if codex is present.
+- If codex is absent, persevere in Claude — keep iterating on the subproblem
+  yourself — and note in one line that no codex specialist was available.
 
 ## Step 3: When tasks reorder
 

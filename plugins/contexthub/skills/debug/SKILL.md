@@ -21,6 +21,22 @@ When invoked as `/contexthub:debug <symptom>`, `$ARGUMENTS` is the bug
 description: what was expected, what actually happened, any logs or
 traces, when it started, how often it repeats.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Triage — confirm hard
 
 Invoke `/triage:grade` on the symptom. If graded **low** (e.g. user
@@ -62,6 +78,13 @@ Invoke `/agy:longctx`:
 
 Capture as `AGY_PATTERN_SCAN`. This is the unique multi-agent capability
 — Claude and Codex can't fit the whole repo; agy can.
+
+### Degradation
+
+- Run the **codex:reason** hypothesis leg (Step 3) only if codex is present.
+- Run the **agy:longctx** pattern scan (Step 4) only if agy is present.
+- Note in one line any leg you skipped because its agent is absent.
+- **count 1** — Claude hypotheses only.
 
 ## Step 5: Triangulate
 

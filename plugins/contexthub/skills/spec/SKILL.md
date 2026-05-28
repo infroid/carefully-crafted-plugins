@@ -19,6 +19,22 @@ When invoked as `/contexthub:spec <idea>`, the user's text arrives as
 `$ARGUMENTS` — that is the rough idea. When this skill auto-triggers,
 assemble the same brief from context.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Brainstorm with the user
 
 In your own context, list:
@@ -45,6 +61,12 @@ specs do not need a debate.
 If invoking: pass the contested design question to `contexthub:converge`,
 incorporate the synthesized recommendation into the spec, and cite which
 parts came from the debate.
+
+### Degradation
+
+- Invoke **contexthub:converge** only when a genuine design tradeoff exists
+  AND `externalCount >= 1`. With no external agents, resolve the tradeoff in
+  Claude and note in one line that no debate was possible.
 
 ## Step 3: Write the spec
 

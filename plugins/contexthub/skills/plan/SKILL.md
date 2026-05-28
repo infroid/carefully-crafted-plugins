@@ -21,6 +21,22 @@ When invoked as `/contexthub:plan <spec-path-or-text>`, treat `$ARGUMENTS` as
 either an absolute path to a spec written by `contexthub:spec`, or the spec
 text itself. If a path, read the file first.
 
+## Step 0: Detect available agents
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
+```
+
+This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+Run only the delegation steps below whose agent is `true`. When you skip a step
+because its agent is absent, say so in one line. If `count` is 1 (Claude only),
+do the work solo and tell the user once: *"Ran this with Claude only — install or
+log into codex/agy for fuller cross-checks."*
+
+**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
+error, treat that agent as unavailable for the rest of this run — drop its role,
+print the degraded note, and continue with the remaining agents.
+
 ## Step 1: Grade the plan's difficulty
 
 Invoke `/triage:grade` on the work-as-a-whole. This sets the effort
@@ -69,6 +85,13 @@ callsite of X", "all places that do Y"), invoke `/agy:longctx`:
 
 Add missed callsites as tasks. Skip this step for single-file or
 clearly-scoped changes — long-context calls cost real tokens.
+
+### Degradation
+
+- The **Claude draft** (Step 2) and **contexthub:triage** (Step 1) always run.
+- Run the **codex:reason** stress-test (Step 3) only if codex is present.
+- Run the **agy:longctx** coverage check (Step 4) only if agy is present.
+- Note in one line any check you skipped because its agent is absent.
 
 ## Step 5: Write the plan artifact
 
