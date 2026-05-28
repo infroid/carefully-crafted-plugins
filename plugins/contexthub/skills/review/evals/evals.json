@@ -1,6 +1,6 @@
 {
   "skill_name": "review",
-  "skill_path": "plugins/forge/skills/review",
+  "skill_path": "plugins/contexthub/skills/review",
   "evals": [
     {
       "id": 1,

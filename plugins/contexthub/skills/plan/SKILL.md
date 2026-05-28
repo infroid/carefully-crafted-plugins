@@ -4,21 +4,21 @@ description: (context-hub:plan) Convert an approved spec into a step-by-step tas
 argument-hint: <path to spec, or paste the spec directly>
 ---
 
-# forge:plan — Plan Writing
+# contexthub:plan — Plan Writing
 
 The second phase of the multi-agent lifecycle. Take an approved spec and
 decompose it into atomic tasks: each one 5–15 minutes of work, each
 named with the exact file paths it touches and how it will be verified.
 
-Where Superpowers does this with one mind, `forge:plan` adds two
+Where Superpowers does this with one mind, `contexthub:plan` adds two
 sanity checks: `codex:reason` stress-tests for missed edge cases, and
 `agy:longctx` verifies the plan touches every relevant callsite when
 the work spans many files.
 
 ## Your input
 
-When invoked as `/forge:plan <spec-path-or-text>`, treat `$ARGUMENTS` as
-either an absolute path to a spec written by `forge:spec`, or the spec
+When invoked as `/contexthub:plan <spec-path-or-text>`, treat `$ARGUMENTS` as
+either an absolute path to a spec written by `contexthub:spec`, or the spec
 text itself. If a path, read the file first.
 
 ## Step 1: Grade the plan's difficulty
@@ -91,7 +91,7 @@ Triage: <link to triage artifact>
 Write via:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase plan --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase plan --slug "<kebab-slug>"
 <plan body>
 EOF
 ```
@@ -100,7 +100,7 @@ Relay the artifact path.
 
 ## Step 6: Hand off to tdd
 
-Tell the user: "Plan written to <path>. Next: `/forge:tdd <plan-path>`
+Tell the user: "Plan written to <path>. Next: `/contexthub:tdd <plan-path>`
 to execute task-by-task with TDD." Do not auto-invoke — the user
 reviews the plan first.
 

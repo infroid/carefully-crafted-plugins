@@ -1,10 +1,10 @@
 {
   "skill_name": "plan",
-  "skill_path": "plugins/forge/skills/plan",
+  "skill_path": "plugins/contexthub/skills/plan",
   "evals": [
     {
       "id": 1,
-      "prompt": "Plan the implementation of docs/carefully-crafted-plugins/forge/spec/2026-05-26-jwt-migration.md",
+      "prompt": "Plan the implementation of docs/carefully-crafted-plugins/lifecycle/spec/2026-05-26-jwt-migration.md",
       "expected_outcome": "Claude reads the spec, invokes /triage:grade (graded hard for a cross-cutting auth change), drafts a 4-8 task plan, stress-tests via /codex:reason, verifies callsite coverage via /agy:longctx (multi-file change), writes the plan artifact.",
       "assertions": [
         {

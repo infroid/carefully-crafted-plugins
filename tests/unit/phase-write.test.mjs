@@ -1,4 +1,4 @@
-// Unit tests for plugins/forge/scripts/forge-write.mjs.
+// Unit tests for plugins/contexthub/scripts/phase-write.mjs.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,10 +9,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const SCRIPT = path.join(REPO_ROOT, "plugins", "forge", "scripts", "forge-write.mjs");
+const SCRIPT = path.join(REPO_ROOT, "plugins", "contexthub", "scripts", "phase-write.mjs");
 
 function setup() {
-  return { dir: fs.mkdtempSync(path.join(os.tmpdir(), "forge-test-")) };
+  return { dir: fs.mkdtempSync(path.join(os.tmpdir(), "phase-test-")) };
 }
 
 function teardown(ctx) {
@@ -34,7 +34,7 @@ test("writes a spec artifact with body from stdin", () => {
     assert.equal(res.status, 0, `stderr: ${res.stderr}`);
     const outPath = res.stdout.trim();
     assert.ok(outPath.endsWith("-recently-viewed.md"));
-    assert.ok(outPath.includes("/forge/spec/"));
+    assert.ok(outPath.includes("/lifecycle/spec/"));
     assert.equal(fs.readFileSync(outPath, "utf8"), body);
   } finally {
     teardown(ctx);
@@ -46,7 +46,7 @@ test("writes a plan artifact", () => {
   try {
     const res = run(["--phase", "plan", "--slug", "jwt-migration"], "plan body\n", ctx);
     assert.equal(res.status, 0);
-    assert.ok(res.stdout.trim().includes("/forge/plan/"));
+    assert.ok(res.stdout.trim().includes("/lifecycle/plan/"));
   } finally {
     teardown(ctx);
   }

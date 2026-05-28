@@ -1,11 +1,11 @@
 {
   "skill_name": "spec",
-  "skill_path": "plugins/forge/skills/spec",
+  "skill_path": "plugins/contexthub/skills/spec",
   "evals": [
     {
       "id": 1,
       "prompt": "Define what we need to build for a 'recently viewed items' sidebar on the product page",
-      "expected_outcome": "Claude brainstorms deliverables (sidebar UI, persistence, click-tracking), asks 2-3 clarifying questions (how many items, anonymous users?), decides NOT to invoke contexthub:converge (no contested tradeoff), writes a spec to docs/carefully-crafted-plugins/forge/spec/.",
+      "expected_outcome": "Claude brainstorms deliverables (sidebar UI, persistence, click-tracking), asks 2-3 clarifying questions (how many items, anonymous users?), decides NOT to invoke contexthub:converge (no contested tradeoff), writes a spec to docs/carefully-crafted-plugins/lifecycle/spec/.",
       "assertions": [
         {
           "name": "clarifying_questions_asked",
@@ -20,7 +20,7 @@
         {
           "name": "artifact_written",
           "type": "file-exists",
-          "description": "an artifact is written under docs/carefully-crafted-plugins/forge/spec/"
+          "description": "an artifact is written under docs/carefully-crafted-plugins/lifecycle/spec/"
         },
         {
           "name": "spec_structure",

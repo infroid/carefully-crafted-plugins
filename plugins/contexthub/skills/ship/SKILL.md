@@ -4,7 +4,7 @@ description: (context-hub:ship) Compose a commit message, stage changes, and shi
 argument-hint: <commit message hint, or 'auto'>
 ---
 
-# forge:ship — Ship the Change
+# contexthub:ship — Ship the Change
 
 The final phase. Compose a message that reflects what was actually done
 and why, stage + commit + (with permission) push, and capture a
@@ -15,15 +15,15 @@ on shared infrastructure — confirm explicitly with the user.
 
 ## Your input
 
-When invoked as `/forge:ship <hint>`, `$ARGUMENTS` is either a hint for
+When invoked as `/contexthub:ship <hint>`, `$ARGUMENTS` is either a hint for
 the commit message ("auth: switch to JWT") or the literal string
 `auto` to let Claude compose one from the diff + plan + review.
 
-## Step 1: Pre-flight — has /forge:verify run?
+## Step 1: Pre-flight — has /contexthub:verify run?
 
-Check `docs/carefully-crafted-plugins/forge/verify/` for a recent
+Check `docs/carefully-crafted-plugins/lifecycle/verify/` for a recent
 verification artifact matching this branch. If absent or stale,
-invoke `/forge:verify` first and STOP. Never ship unverified work.
+invoke `/contexthub:verify` first and STOP. Never ship unverified work.
 
 If the verification gate was BLOCK, refuse to ship — tell the user
 what blockers remain.
@@ -70,7 +70,7 @@ Run `git status` after to confirm the commit landed.
 
 If the change involved a contested design choice (the spec went through
 `contexthub:converge`, or a hard tradeoff was made in
-`forge:plan`), consider a tiny retro:
+`contexthub:plan`), consider a tiny retro:
 
 > What did each of you (Claude, Codex, Antigravity) learn from how this
 > change played out? What would you do differently next time on a
@@ -122,7 +122,7 @@ NEVER force-push to main / master. NEVER use `--no-verify` or
 Write via:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase ship --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase ship --slug "<kebab-slug>"
 <ship body>
 EOF
 ```

@@ -4,7 +4,7 @@ description: (context-hub:spec) Refine a rough idea into a concrete, falsifiable
 argument-hint: <rough idea or problem statement>
 ---
 
-# forge:spec — Spec Refinement
+# contexthub:spec — Spec Refinement
 
 The first phase of the multi-agent lifecycle. Take a rough idea and turn it
 into a spec concrete enough to plan against: user-visible deliverables,
@@ -15,7 +15,7 @@ genuine design tradeoff exists that benefits from three perspectives.
 
 ## Your input
 
-When invoked as `/forge:spec <idea>`, the user's text arrives as
+When invoked as `/contexthub:spec <idea>`, the user's text arrives as
 `$ARGUMENTS` — that is the rough idea. When this skill auto-triggers,
 assemble the same brief from context.
 
@@ -78,10 +78,10 @@ One paragraph. What is true after we ship this that isn't true now?
 - Anything left unresolved that downstream phases must answer.
 ```
 
-Write the artifact via `forge-write.mjs`:
+Write the artifact via `phase-write.mjs`:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase spec --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase spec --slug "<kebab-slug>"
 <spec body>
 EOF
 ```
@@ -90,8 +90,8 @@ The script returns the artifact path. Relay it.
 
 ## Step 4: Hand off to plan
 
-Tell the user: "Spec written to <path>. Next: `/forge:plan <path>` to
-decompose into tasks." Do not auto-invoke `/forge:plan` — the user gets
+Tell the user: "Spec written to <path>. Next: `/contexthub:plan <path>` to
+decompose into tasks." Do not auto-invoke `/contexthub:plan` — the user gets
 to review the spec first.
 
 ## Honesty

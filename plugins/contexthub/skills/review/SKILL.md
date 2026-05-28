@@ -4,17 +4,17 @@ description: (context-hub:review) Three-way code review of a diff or branch — 
 argument-hint: <diff range, branch name, or paths>
 ---
 
-# forge:review — Three-Way Code Review
+# contexthub:review — Three-Way Code Review
 
 The fourth phase. Single-reviewer code review misses two things every
 time: orthogonal regressions outside the diff, and biases the author
-already shares. `forge:review` fixes both — three independent passes,
+already shares. `contexthub:review` fixes both — three independent passes,
 then synthesis.
 
 ## Your input
 
-When invoked as `/forge:review <target>`, `$ARGUMENTS` is the diff
-range (e.g. `HEAD~5..HEAD`), branch name (e.g. `forge/<plan-slug>`), or
+When invoked as `/contexthub:review <target>`, `$ARGUMENTS` is the diff
+range (e.g. `HEAD~5..HEAD`), branch name (e.g. `contexthub/<plan-slug>`), or
 a path glob. If empty, default to `git diff origin/main...HEAD`.
 
 ## Step 1: Claude's in-context pass
@@ -82,7 +82,7 @@ evidence.
 Write via:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase review --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase review --slug "<kebab-slug>"
 <review body>
 EOF
 ```
@@ -90,7 +90,7 @@ EOF
 ## Step 5: Hand off
 
 Tell the user: "Review at <path>. <N> blockers, <M> consider, <K>
-nits. Next: address blockers, then `/forge:verify` before shipping."
+nits. Next: address blockers, then `/contexthub:verify` before shipping."
 
 ## Honesty
 

@@ -4,19 +4,19 @@ description: (context-hub:verify) Pre-completion verification gate — run the t
 argument-hint: <branch, diff range, or 'current'>
 ---
 
-# forge:verify — Pre-Completion Verification
+# contexthub:verify — Pre-Completion Verification
 
 The fifth phase. After implementation, before shipping. Three checks:
 the test suite says green, the UI actually behaves (if there's a UI),
 nothing else broke (long-context blast radius).
 
-Where Superpowers stops at "I think the test passes," `forge:verify`
+Where Superpowers stops at "I think the test passes," `contexthub:verify`
 confirms with Playwright when there's a UI to drive, and with
 Antigravity when the change might ripple into unrelated modules.
 
 ## Your input
 
-When invoked as `/forge:verify <target>`, `$ARGUMENTS` is the diff
+When invoked as `/contexthub:verify <target>`, `$ARGUMENTS` is the diff
 range, branch, or `current` (default: current branch's diff from
 `origin/main`).
 
@@ -78,14 +78,14 @@ Long-context output can hallucinate; pay the verification tax.
 - Suspected impacts: <list with verification notes>
 
 ## Gate
-- [PASS] All checks clean. Safe to /forge:ship.
+- [PASS] All checks clean. Safe to /contexthub:ship.
 - [BLOCK] <N> blockers found. Address before shipping.
 ```
 
 Write via:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase verify --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase verify --slug "<kebab-slug>"
 <verify body>
 EOF
 ```
@@ -93,7 +93,7 @@ EOF
 ## Step 5: Hand off
 
 If gate is PASS, tell the user: "Verification clean. Next:
-`/forge:ship`." If gate is BLOCK, list the blockers and STOP — do not
+`/contexthub:ship`." If gate is BLOCK, list the blockers and STOP — do not
 auto-ship.
 
 ## Honesty

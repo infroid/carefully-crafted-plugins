@@ -1,16 +1,16 @@
 {
   "skill_name": "ship",
-  "skill_path": "plugins/forge/skills/ship",
+  "skill_path": "plugins/contexthub/skills/ship",
   "evals": [
     {
       "id": 1,
       "prompt": "Ship the jwt-migration branch",
-      "expected_outcome": "Claude checks for a recent /forge:verify artifact (and runs verify if missing), composes a commit message (no auto-generated tag lines, no model identifiers), stages explicitly (NOT git add -A), commits, asks the user before pushing.",
+      "expected_outcome": "Claude checks for a recent /contexthub:verify artifact (and runs verify if missing), composes a commit message (no auto-generated tag lines, no model identifiers), stages explicitly (NOT git add -A), commits, asks the user before pushing.",
       "assertions": [
         {
           "name": "verify_gate_checked",
           "type": "command-trace",
-          "description": "ship looks for or invokes /forge:verify before committing"
+          "description": "ship looks for or invokes /contexthub:verify before committing"
         },
         {
           "name": "explicit_stage",

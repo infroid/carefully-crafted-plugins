@@ -1,6 +1,6 @@
 {
   "skill_name": "verify",
-  "skill_path": "plugins/forge/skills/verify",
+  "skill_path": "plugins/contexthub/skills/verify",
   "evals": [
     {
       "id": 1,

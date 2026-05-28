@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Write a forge lifecycle artifact to
-// docs/carefully-crafted-plugins/forge/<phase>/<YYYY-MM-DD-HHMMSS>-<slug>.md
+// Write a lifecycle artifact to
+// docs/carefully-crafted-plugins/lifecycle/<phase>/<YYYY-MM-DD-HHMMSS>-<slug>.md
 //
 // Usage:
-//   node forge-write.mjs --phase <spec|plan|tdd|review|verify|debug|ship> \
+//   node phase-write.mjs --phase <spec|plan|tdd|review|verify|debug|ship> \
 //                        --slug <kebab-case> \
 //                        [--cwd <dir>] < body.md
 //
@@ -18,7 +18,7 @@ import path from "node:path";
 const PHASES = new Set(["spec", "plan", "tdd", "review", "verify", "debug", "ship"]);
 
 function die(msg) {
-  console.error(`forge-write: ${msg}`);
+  console.error(`phase-write: ${msg}`);
   process.exit(2);
 }
 
@@ -76,7 +76,7 @@ function main() {
   if (!body.trim()) die("artifact body (stdin) is empty");
 
   const cwd = args.cwd || process.cwd();
-  const dir = path.join(cwd, "docs", "carefully-crafted-plugins", "forge", args.phase);
+  const dir = path.join(cwd, "docs", "carefully-crafted-plugins", "lifecycle", args.phase);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${timestamp()}-${slugify(args.slug)}.md`);
   fs.writeFileSync(file, body.endsWith("\n") ? body : body + "\n");

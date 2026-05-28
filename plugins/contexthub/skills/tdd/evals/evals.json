@@ -1,10 +1,10 @@
 {
   "skill_name": "tdd",
-  "skill_path": "plugins/forge/skills/tdd",
+  "skill_path": "plugins/contexthub/skills/tdd",
   "evals": [
     {
       "id": 1,
-      "prompt": "Execute the plan at docs/carefully-crafted-plugins/forge/plan/2026-05-26-jwt-migration.md",
+      "prompt": "Execute the plan at docs/carefully-crafted-plugins/lifecycle/plan/2026-05-26-jwt-migration.md",
       "expected_outcome": "For each task: Claude writes the failing test (RED), implements minimally (GREEN), refactors (REFACTOR), and commits with format '<task-id>: <summary>'. Worktree created for multi-task plan. /codex:reason invoked only when Claude gets genuinely stuck on a subproblem.",
       "assertions": [
         {

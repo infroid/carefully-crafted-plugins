@@ -4,7 +4,7 @@ description: (context-hub:tdd) Execute a forge plan task-by-task using RED → G
 argument-hint: <path to plan, or task id to execute>
 ---
 
-# forge:tdd — Test-Driven Execution
+# contexthub:tdd — Test-Driven Execution
 
 The third phase. Take an approved plan and execute task-by-task. For
 each task: write a failing test (RED), implement the smallest change
@@ -16,7 +16,7 @@ turns in Claude.
 
 ## Your input
 
-When invoked as `/forge:tdd <plan-path-or-task>`, `$ARGUMENTS` is either
+When invoked as `/contexthub:tdd <plan-path-or-task>`, `$ARGUMENTS` is either
 the plan artifact path or a specific task id ("t3") to execute. If a
 plan path, work through every task in order; if a task id, execute
 just that one.
@@ -27,7 +27,7 @@ For multi-task plans, isolate the work in a git worktree so the main
 branch stays clean and you can compare progress easily:
 
 ```bash
-git worktree add ../<repo-name>-<plan-slug> -b forge/<plan-slug>
+git worktree add ../<repo-name>-<plan-slug> -b contexthub/<plan-slug>
 cd ../<repo-name>-<plan-slug>
 ```
 
@@ -85,7 +85,7 @@ the user's trust mid-plan.
 ## Step 4: Hand off
 
 After all tasks pass, tell the user: "All tasks executed. Next:
-`/forge:review <branch>` for the three-way audit." Do not auto-invoke.
+`/contexthub:review <branch>` for the three-way audit." Do not auto-invoke.
 
 ## Honesty
 

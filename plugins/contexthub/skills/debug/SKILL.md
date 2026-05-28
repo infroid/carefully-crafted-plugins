@@ -4,12 +4,12 @@ description: (context-hub:debug) Systematic root-cause debugging from a symptom 
 argument-hint: <symptom or bug description>
 ---
 
-# forge:debug — Systematic Root-Cause Debugging
+# contexthub:debug — Systematic Root-Cause Debugging
 
 Called whenever something broke. Hard debugging is combinatorial — many
 plausible causes, few that actually explain the symptom. Single-agent
 debugging falls into "first plausible cause = root cause" too often.
-`forge:debug` triangulates: Claude, Codex's hard-reasoning, and
+`contexthub:debug` triangulates: Claude, Codex's hard-reasoning, and
 Antigravity's whole-repo view all generate hypotheses independently.
 
 This is the one phase that runs **out of order** — it's invoked whenever
@@ -17,7 +17,7 @@ something breaks, not at a specific lifecycle stage.
 
 ## Your input
 
-When invoked as `/forge:debug <symptom>`, `$ARGUMENTS` is the bug
+When invoked as `/contexthub:debug <symptom>`, `$ARGUMENTS` is the bug
 description: what was expected, what actually happened, any logs or
 traces, when it started, how often it repeats.
 
@@ -115,7 +115,7 @@ tasks).
 Write via:
 
 ```bash
-cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/forge-write.mjs --phase debug --slug "<kebab-slug>"
+cat <<EOF | node ${CLAUDE_PLUGIN_ROOT}/scripts/phase-write.mjs --phase debug --slug "<kebab-slug>"
 <debug body>
 EOF
 ```
