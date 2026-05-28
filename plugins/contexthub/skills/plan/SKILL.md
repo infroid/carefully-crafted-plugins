@@ -39,7 +39,7 @@ print the degraded note, and continue with the remaining agents.
 
 ## Step 1: Grade the plan's difficulty
 
-Invoke `/triage:grade` on the work-as-a-whole. This sets the effort
+Invoke `/contexthub:triage` on the work-as-a-whole. This sets the effort
 floor for the stress-test phase. If the plan is genuinely **low**,
 skip Step 3 and Step 4 — single-perspective planning is sufficient.
 
@@ -53,7 +53,7 @@ Decompose into atomic tasks. Each task gets:
 - **Approach**: 1-3 sentences. Concrete enough to start typing.
 - **Verification**: how we'll confirm this task is done (test, command,
   manual check).
-- **Difficulty**: low | medium | hard (per triage:grade rubric)
+- **Difficulty**: low | medium | hard (per contexthub:triage rubric)
 - **Specialist**: claude | codex | agy | contexthub
 ```
 

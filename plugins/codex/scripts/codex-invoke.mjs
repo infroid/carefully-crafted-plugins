@@ -15,7 +15,7 @@
 //                            Override with --model or CODEX_MODEL.
 //   --reasoning-effort <e>   One of: low | medium | high | xhigh.
 //                            Default: medium (token-efficient floor — the
-//                            triage plugin escalates to high/xhigh when a
+//                            contexthub triage skill escalates to high/xhigh when a
 //                            task is graded hard).
 //   --verbosity <v>          One of: low | medium | high. Default: low.
 //                            Translated to `-c model_verbosity=<v>` for codex.
@@ -53,7 +53,7 @@ const VERBOSITIES = new Set(["low", "medium", "high"]);
 const SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
 // Built-in defaults: best model, medium reasoning effort, lowest verbosity.
-// `medium` is the token-efficient floor — the triage plugin escalates to
+// `medium` is the token-efficient floor — the contexthub triage skill escalates to
 // `high` or `xhigh` when a task is graded hard. Direct callers can still
 // override with --reasoning-effort or CODEX_REASONING_EFFORT.
 const DEFAULT_MODEL = "gpt-5.5";

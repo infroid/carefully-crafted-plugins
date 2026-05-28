@@ -5,12 +5,12 @@
     {
       "id": 1,
       "prompt": "Plan the implementation of docs/carefully-crafted-plugins/lifecycle/spec/2026-05-26-jwt-migration.md",
-      "expected_outcome": "Claude reads the spec, invokes /triage:grade (graded hard for a cross-cutting auth change), drafts a 4-8 task plan, stress-tests via /codex:reason, verifies callsite coverage via /agy:longctx (multi-file change), writes the plan artifact.",
+      "expected_outcome": "Claude reads the spec, invokes /contexthub:triage (graded hard for a cross-cutting auth change), drafts a 4-8 task plan, stress-tests via /codex:reason, verifies callsite coverage via /agy:longctx (multi-file change), writes the plan artifact.",
       "assertions": [
         {
           "name": "triage_invoked",
           "type": "command-trace",
-          "description": "triage:grade is invoked before drafting"
+          "description": "contexthub:triage is invoked before drafting"
         },
         {
           "name": "codex_reason_stress_test",

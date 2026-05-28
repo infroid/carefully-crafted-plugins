@@ -175,7 +175,7 @@ function main() {
 
     // Name uniqueness within a plugin is a platform requirement.
     // Cross-plugin sharing is allowed by design — lifecycle skills
-    // (`forge:review`, `forge:spec`) intentionally reuse phase names
+    // (`contexthub:review`, `contexthub:spec`) intentionally reuse phase names
     // that primitives also expose (`codex:review`). Claude routes by
     // the full plugin:skill identity and disambiguates by description.
     if (name) {

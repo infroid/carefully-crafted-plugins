@@ -39,7 +39,7 @@ print the degraded note, and continue with the remaining agents.
 
 ## Step 1: Triage — confirm hard
 
-Invoke `/triage:grade` on the symptom. If graded **low** (e.g. user
+Invoke `/contexthub:triage` on the symptom. If graded **low** (e.g. user
 already knows where the bug is), handle inline — skip the multi-agent
 debug protocol. Save it for genuinely hard cases.
 

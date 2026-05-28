@@ -87,7 +87,7 @@ To apply a refactor, set `--role "Refactoring agent"` and
 `--sandbox workspace-write` instead (only after confirming in Step 2).
 
 `--reasoning-effort high` is explicit — code review wants strong reasoning
-over the wrapper's `medium` default. The `triage` plugin can grade
+over the wrapper's `medium` default. The `contexthub` triage skill can grade
 individual reviews up to `xhigh` for genuinely hard audits, or down to
 `medium` for trivial diffs.
 

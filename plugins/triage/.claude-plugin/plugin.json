@@ -1,8 +1,0 @@
-{
-  "name": "triage",
-  "version": "1.0.1",
-  "description": "Token-efficient task grading for Claude Code: decomposes a task into single-or-subtask, grades each low/medium/hard, and writes a structured routing plan that the codex/agy/contexthub bridges read to set effort and model. The token-efficiency primitive.",
-  "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
-  "homepage": "https://github.com/infroid/carefully-crafted-plugins",
-  "keywords": ["triage", "grading", "difficulty", "routing", "token-efficiency", "effort"]
-}

@@ -26,7 +26,7 @@ const ASSERTION_TYPES = new Set([
   "command-trace",      // a subprocess was (or was not) invoked with specific args
   "spec-content",       // the 5-section spec contains a specific field/value
   "artifact-content",   // the written artifact contains specific content
-  "artifact",           // the triage/forge JSON artifact has a specific field/value
+  "artifact",           // the triage/lifecycle JSON artifact has a specific field/value
   "file-exists",        // a file exists at a path matching a pattern
   "conversation",       // Claude's reply to the user matches a pattern
 ]);

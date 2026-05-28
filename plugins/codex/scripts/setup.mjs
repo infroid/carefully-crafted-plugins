@@ -155,7 +155,7 @@ const GITIGNORE_ENTRIES = [
   "docs/carefully-crafted-plugins/handoffs/",
   "docs/carefully-crafted-plugins/output/",
   "docs/carefully-crafted-plugins/triage/",
-  "docs/carefully-crafted-plugins/forge/",
+  "docs/carefully-crafted-plugins/lifecycle/",
 ];
 
 function checkCodexInstalled() {

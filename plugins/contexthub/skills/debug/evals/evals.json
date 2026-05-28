@@ -10,7 +10,7 @@
         {
           "name": "triage_hard",
           "type": "command-trace",
-          "description": "triage:grade is invoked and grades the symptom as hard"
+          "description": "contexthub:triage is invoked and grades the symptom as hard"
         },
         {
           "name": "claude_hypotheses_first",
@@ -42,7 +42,7 @@
         {
           "name": "triage_low_short_circuit",
           "type": "command-trace",
-          "description": "after triage:grade returns low, skill exits the multi-agent protocol"
+          "description": "after contexthub:triage returns low, skill exits the multi-agent protocol"
         },
         {
           "name": "no_specialist_calls",

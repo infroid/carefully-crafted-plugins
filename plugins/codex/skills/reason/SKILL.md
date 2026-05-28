@@ -82,7 +82,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   path.
 - `--reasoning-effort xhigh` is explicit — this skill is the hard-reasoning
   specialist, so we burn the strongest setting on purpose. The wrapper's
-  default is `medium`; the triage plugin grades down to that or up here
+  default is `medium`; the contexthub triage skill grades down to that or up here
   depending on task difficulty.
 - Model defaults to `gpt-5.5`. Only add `--model <name>` if the user
   explicitly names one.
