@@ -1,6 +1,6 @@
 ---
-name: grade
-description: (context-hub:grade) Grade a task low/medium/hard and decompose into subtasks if scope warrants, then write a routing plan that downstream bridges read to set model effort. Use whenever you are about to delegate work to /codex:*, /agy:*, or /contexthub:converge — call this first to avoid overspending tokens on easy work. Default token-efficiency path in this marketplace.
+name: triage
+description: (context-hub:triage) Grade a task low/medium/hard and decompose into subtasks if scope warrants, then write a routing plan that downstream bridges read to set model effort. Use whenever you are about to delegate work to /codex:*, /agy:*, or /contexthub:converge — call this first to avoid overspending tokens on easy work. Default token-efficiency path in this marketplace.
 argument-hint: <task description>
 ---
 
@@ -19,7 +19,7 @@ effort or you have strong context the task is uniform.
 
 ## Your input
 
-When invoked as `/triage:grade <task>`, the user's text arrives as
+When invoked as `/contexthub:triage <task>`, the user's text arrives as
 `$ARGUMENTS` — that is the task description. When this skill auto-triggers
 from conversation, assemble the same description from context.
 
@@ -43,7 +43,7 @@ When in doubt, prefer **single**. Over-decomposition costs context.
 
 ## Step 2: Grade each task — low / medium / hard
 
-Use `${CLAUDE_PLUGIN_ROOT}/skills/grade/references/difficulty-heuristics.md`
+Use `${CLAUDE_PLUGIN_ROOT}/skills/triage/references/difficulty-heuristics.md`
 for the full rubric. Quick version:
 
 - **low** — single-file edit, well-defined spec, no ambiguity, no

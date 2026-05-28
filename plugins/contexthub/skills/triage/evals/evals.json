@@ -1,6 +1,6 @@
 {
-  "skill_name": "grade",
-  "skill_path": "plugins/triage/skills/grade",
+  "skill_name": "triage",
+  "skill_path": "plugins/contexthub/skills/triage",
   "evals": [
     {
       "id": 1,
