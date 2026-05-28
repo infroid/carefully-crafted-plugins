@@ -1,0 +1,45 @@
+{
+  "skill_name": "tdd",
+  "skill_path": "plugins/contexthub/skills/tdd",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Execute the plan at docs/carefully-crafted-plugins/lifecycle/plan/2026-05-26-jwt-migration.md",
+      "expected_outcome": "For each task: Claude writes the failing test (RED), implements minimally (GREEN), refactors (REFACTOR), and commits with format '<task-id>: <summary>'. Worktree created for multi-task plan. /codex:reason invoked only when Claude gets genuinely stuck on a subproblem.",
+      "assertions": [
+        {
+          "name": "worktree_setup",
+          "type": "command-trace",
+          "description": "git worktree add is invoked for the multi-task plan"
+        },
+        {
+          "name": "red_green_per_task",
+          "type": "conversation",
+          "description": "each task shows a failing test before passing — RED then GREEN, not GREEN-only"
+        },
+        {
+          "name": "commit_per_task",
+          "type": "command-trace",
+          "description": "one commit per task with format '<id>: <summary>'"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I'm stuck on task t3 — the algorithm isn't converging. Continue.",
+      "expected_outcome": "Claude routes t3's stuck subproblem to /codex:reason with what was tried, NOT another five rounds in Claude. After Codex's hypothesis, Claude implements and continues.",
+      "assertions": [
+        {
+          "name": "delegates_to_codex_when_stuck",
+          "type": "command-trace",
+          "description": "codex:reason is invoked when Claude has tried 1-2 attempts and the algorithm isn't working"
+        },
+        {
+          "name": "delegation_disclosed",
+          "type": "conversation",
+          "description": "Claude tells the user it delegated t3's subproblem to Codex, and what came back"
+        }
+      ]
+    }
+  ]
+}

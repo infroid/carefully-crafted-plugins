@@ -1,4 +1,4 @@
-// Unit tests for plugins/triage/scripts/triage-write.mjs.
+// Unit tests for plugins/contexthub/scripts/triage-write.mjs.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const SCRIPT = path.join(REPO_ROOT, "plugins", "triage", "scripts", "triage-write.mjs");
+const SCRIPT = path.join(REPO_ROOT, "plugins", "contexthub", "scripts", "triage-write.mjs");
 
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "triage-test-"));

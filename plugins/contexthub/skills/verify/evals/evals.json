@@ -1,0 +1,50 @@
+{
+  "skill_name": "verify",
+  "skill_path": "plugins/contexthub/skills/verify",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Verify the jwt-migration branch before shipping",
+      "expected_outcome": "Claude runs the test suite (green), invokes /codex:playwright to drive the login flow against the dev server, invokes /agy:longctx for blast-radius scan, synthesizes a PASS/BLOCK gate. Stops if any step fails.",
+      "assertions": [
+        {
+          "name": "tests_first",
+          "type": "command-trace",
+          "description": "test suite is run before any specialist invocation"
+        },
+        {
+          "name": "playwright_for_ui",
+          "type": "command-trace",
+          "description": "codex:playwright is invoked for the UI/login-flow change"
+        },
+        {
+          "name": "blast_radius_scan",
+          "type": "command-trace",
+          "description": "agy:longctx is invoked to scan for blast radius across untouched modules"
+        },
+        {
+          "name": "gate_block_on_test_failure",
+          "type": "conversation",
+          "description": "if tests fail, Claude STOPS and reports — does not proceed to Steps 2-3"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Verify the backend-only refactor on the parser branch",
+      "expected_outcome": "Claude runs tests + agy:longctx (parser changes can ripple), but SKIPS codex:playwright (no UI change). Notes skipped step in report.",
+      "assertions": [
+        {
+          "name": "no_playwright",
+          "type": "command-trace",
+          "description": "codex:playwright is NOT invoked for backend-only changes"
+        },
+        {
+          "name": "blast_radius_still_run",
+          "type": "command-trace",
+          "description": "agy:longctx still runs — parser refactor can ripple"
+        }
+      ]
+    }
+  ]
+}

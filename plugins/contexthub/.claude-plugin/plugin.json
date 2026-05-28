@@ -1,8 +1,8 @@
 {
   "name": "contexthub",
-  "version": "3.0.1",
-  "description": "Four-phase Delphi debate primitive for Claude Code: Claude, OpenAI Codex, and Google Antigravity answer independently, critique each other, refine, then converge — Claude synthesizes the final answer with consensus and remaining disagreement.",
+  "version": "4.0.0",
+  "description": "The multi-agent hub for Claude Code: the full software lifecycle (spec, plan, tdd, review, verify, debug, ship), token-efficient task triage, and the four-phase Delphi converge debate. Ties Claude, OpenAI Codex, and Google Antigravity together, degrading gracefully to whichever of the three are installed.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
-  "keywords": ["contexthub", "converge", "debate", "delphi", "multi-agent", "ensemble", "synthesis"]
+  "keywords": ["contexthub", "multi-agent", "lifecycle", "triage", "converge", "delphi", "spec", "plan", "tdd", "review", "verify", "debug", "ship", "degradation", "ensemble", "synthesis"]
 }

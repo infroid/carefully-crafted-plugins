@@ -5,13 +5,13 @@
     "email": "raiaman15@gmail.com"
   },
   "metadata": {
-    "description": "A small, opinionated set of multi-agent plugins for Claude Code. Bridges to OpenAI Codex and Google Antigravity, a Delphi debate primitive, token-efficient task-grading triage, and the forge lifecycle — sufficient for every capability worth multi-agenting, deliberately lightweight by construction.",
-    "version": "4.0.1"
+    "description": "A small, opinionated set of multi-agent plugins for Claude Code. Two single-agent bridges — codex (OpenAI Codex) and agy (Google Antigravity) — plus contexthub, the multi-agent hub that ties Claude, codex, and agy together across the software lifecycle, task triage, and the Delphi converge debate, degrading gracefully to whichever agents are installed. Deliberately lightweight by construction.",
+    "version": "5.0.0"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call. Default effort is medium; triage escalates per task.",
+      "description": "OpenAI Codex CLI bridge: hard reasoning (gpt-5.5 xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec with audit trail on every call. Default effort is medium; the contexthub triage skill escalates per task.",
       "version": "3.1.2",
       "author": {
         "name": "Aman Rai",
@@ -31,33 +31,13 @@
     },
     {
       "name": "contexthub",
-      "description": "Four-phase Delphi debate primitive: Claude, OpenAI Codex, and Google Antigravity answer independently, critique each other, refine, then converge — Claude synthesizes the final answer with consensus and remaining disagreement.",
-      "version": "3.0.1",
+      "description": "The multi-agent hub for Claude Code: the full software lifecycle (spec, plan, tdd, review, verify, debug, ship), token-efficient task triage, and the four-phase Delphi converge debate. Ties Claude, OpenAI Codex, and Google Antigravity together, degrading gracefully to whichever of the three are installed.",
+      "version": "4.0.0",
       "author": {
         "name": "Aman Rai",
         "email": "raiaman15@gmail.com"
       },
       "source": "./plugins/contexthub"
-    },
-    {
-      "name": "triage",
-      "description": "Token-efficient task grading: decomposes a task into single-or-subtask, grades each low/medium/hard, and writes a routing plan that the codex/agy/contexthub bridges read to set effort and model. The token-efficiency primitive — spend big effort only on hard work.",
-      "version": "1.0.1",
-      "author": {
-        "name": "Aman Rai",
-        "email": "raiaman15@gmail.com"
-      },
-      "source": "./plugins/triage"
-    },
-    {
-      "name": "forge",
-      "description": "The multi-agent software lifecycle: spec, plan, tdd, review, verify, debug, ship. Seven phases, each routing to the strongest specialist (Claude, Codex, Antigravity, contexthub) and graded for difficulty by triage. What Superpowers does, with three minds.",
-      "version": "1.0.1",
-      "author": {
-        "name": "Aman Rai",
-        "email": "raiaman15@gmail.com"
-      },
-      "source": "./plugins/forge"
     }
   ]
 }
