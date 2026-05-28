@@ -13,6 +13,7 @@
 //   externalCount = codex + agy available (0-2)
 
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_TIMEOUT_MS = 1500;
 
@@ -34,7 +35,7 @@ export function detect({ timeoutMs, env = process.env } = {}) {
   return { claude: true, codex, agy, count: 1 + externalCount, externalCount };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.stdout.write(JSON.stringify(detect()) + "\n");
   process.exit(0);
 }
