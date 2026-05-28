@@ -6,6 +6,22 @@ any change that ships a new plugin, removes a plugin, or changes
 default behavior of an existing plugin in a user-visible way.
 Individual plugin versions follow SemVer per plugin.
 
+## 4.0.1 — context-hub description prefix
+
+Marketplace bumped to 4.0.1 (patch). Every skill description across all
+five plugins now begins with a `(context-hub:<skill>)` brand prefix for
+at-a-glance provenance in skill listings (e.g. `(context-hub:imagegen)`,
+`(context-hub:converge)`). Descriptions are otherwise unchanged and the
+quality-bar lint still passes; no behavior changes.
+
+**Plugin patch bumps**
+
+- `codex` 3.1.1 → 3.1.2
+- `agy` 3.0.0 → 3.0.1
+- `contexthub` 3.0.0 → 3.0.1
+- `forge` 1.0.0 → 1.0.1
+- `triage` 1.0.0 → 1.0.1
+
 ## 4.0.0 — multi-agent lifecycle
 
 Marketplace bumped to 4.0.0; two new plugins added.

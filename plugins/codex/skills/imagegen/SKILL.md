@@ -1,6 +1,6 @@
 ---
 name: imagegen
-description: Generate raster images via OpenAI gpt-image-2 (Codex CLI's built-in $imagegen). Use whenever the user wants images, icons, logos, illustrations, mockups, hero graphics, screenshots-as-output, or any visual asset — even if they don't name OpenAI, Codex, or image generation. Default image-generation path in this marketplace.
+description: (context-hub:imagegen) Generate raster images via OpenAI gpt-image-2 (Codex CLI's built-in $imagegen). Use whenever the user wants images, icons, logos, illustrations, mockups, hero graphics, screenshots-as-output, or any visual asset — even if they don't name OpenAI, Codex, or image generation. Default image-generation path in this marketplace.
 argument-hint: <image generation prompt>
 ---
 

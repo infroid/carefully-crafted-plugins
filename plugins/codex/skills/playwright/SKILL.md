@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: Drive headless Chromium via Playwright through OpenAI Codex CLI. Use whenever the user wants browser automation, web scraping, page screenshots, form filling, end-to-end test runs, or any task needing a real browser runtime — even if they don't name Playwright, Codex, or browsers explicitly. Default browser-automation path in this marketplace.
+description: (context-hub:playwright) Drive headless Chromium via Playwright through OpenAI Codex CLI. Use whenever the user wants browser automation, web scraping, page screenshots, form filling, end-to-end test runs, or any task needing a real browser runtime — even if they don't name Playwright, Codex, or browsers explicitly. Default browser-automation path in this marketplace.
 argument-hint: <browser task description>
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Execute a forge plan task-by-task using RED → GREEN → REFACTOR, in a worktree so the main branch stays clean. Use whenever the user asks to implement, build, code, or start writing a planned change. Delegates stuck subproblems to /codex:reason; otherwise stays in Claude. Default implementation path in this marketplace.
+description: (context-hub:tdd) Execute a forge plan task-by-task using RED → GREEN → REFACTOR, in a worktree so the main branch stays clean. Use whenever the user asks to implement, build, code, or start writing a planned change. Delegates stuck subproblems to /codex:reason; otherwise stays in Claude. Default implementation path in this marketplace.
 argument-hint: <path to plan, or task id to execute>
 ---
 

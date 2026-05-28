@@ -1,6 +1,6 @@
 {
   "name": "contexthub",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Four-phase Delphi debate primitive for Claude Code: Claude, OpenAI Codex, and Google Antigravity answer independently, critique each other, refine, then converge — Claude synthesizes the final answer with consensus and remaining disagreement.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",

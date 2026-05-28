@@ -1,6 +1,6 @@
 ---
 name: review
-description: Three-way code review of a diff or branch — Claude in-context, /codex:review with fresh eyes (no authoring bias), /agy:longctx for whole-repo regression scan. Use whenever the user asks for a thorough code review, audit, or multi-perspective sanity check of recent changes. Distinct from /codex:review (single-agent). Default multi-agent review path in this marketplace.
+description: (context-hub:review) Three-way code review of a diff or branch — Claude in-context, /codex:review with fresh eyes (no authoring bias), /agy:longctx for whole-repo regression scan. Use whenever the user asks for a thorough code review, audit, or multi-perspective sanity check of recent changes. Distinct from /codex:review (single-agent). Default multi-agent review path in this marketplace.
 argument-hint: <diff range, branch name, or paths>
 ---
 

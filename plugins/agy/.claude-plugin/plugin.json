@@ -1,6 +1,6 @@
 {
   "name": "agy",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Google Antigravity CLI bridge for Claude Code: 1M-token long-context analysis (Gemini 3 Pro), Nano Banana Pro image generation, Veo video generation, raw exec — filling capability gaps Claude Code cannot meet alone.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",

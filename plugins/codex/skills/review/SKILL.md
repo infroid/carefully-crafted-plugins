@@ -1,6 +1,6 @@
 ---
 name: review
-description: Delegate code review and refactoring to OpenAI Codex. Use whenever the user wants a code review, audit, security check, bug hunt, refactor, or an independent second opinion on a diff or file set — even if they don't name Codex. Default code-review path in this marketplace.
+description: (context-hub:review) Delegate code review and refactoring to OpenAI Codex. Use whenever the user wants a code review, audit, security check, bug hunt, refactor, or an independent second opinion on a diff or file set — even if they don't name Codex. Default code-review path in this marketplace.
 argument-hint: <review target or refactor brief>
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Optional — re-scaffold the Codex bridge in this repo (refresh starter constraint/output-format files, verify the Codex CLI install, update .gitignore). Other Codex skills auto-run setup on first use; /codex:setup is only needed to refresh or re-verify. Slash-command only.
+description: (context-hub:setup) Optional — re-scaffold the Codex bridge in this repo (refresh starter constraint/output-format files, verify the Codex CLI install, update .gitignore). Other Codex skills auto-run setup on first use; /codex:setup is only needed to refresh or re-verify. Slash-command only.
 ---
 
 # Codex Bridge Setup

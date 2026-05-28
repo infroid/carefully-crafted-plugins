@@ -1,6 +1,6 @@
 ---
 name: resume
-description: Continue the most recent OpenAI Codex session in this directory with a follow-up prompt — keeps the original transcript, plan, approvals, model, effort, and sandbox. Slash-command only: invoke as /codex:resume <follow-up>.
+description: (context-hub:resume) Continue the most recent OpenAI Codex session in this directory with a follow-up prompt — keeps the original transcript, plan, approvals, model, effort, and sandbox. Slash-command only: invoke as /codex:resume <follow-up>.
 argument-hint: <follow-up for the last Codex session>
 ---
 

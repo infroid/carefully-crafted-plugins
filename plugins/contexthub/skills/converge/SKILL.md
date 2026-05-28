@@ -1,6 +1,6 @@
 ---
 name: converge
-description: Stage a four-phase Delphi debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — each agent answers, critiques, refines, then Claude synthesizes consensus and remaining disagreement. Slash-command only: invoke as /contexthub:converge <question>. ~6 external CLI calls; reach for it only on genuinely hard architecture, design, or correctness questions where diverse perspectives are worth the cost.
+description: (context-hub:converge) Stage a four-phase Delphi debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — each agent answers, critiques, refines, then Claude synthesizes consensus and remaining disagreement. Slash-command only: invoke as /contexthub:converge <question>. ~6 external CLI calls; reach for it only on genuinely hard architecture, design, or correctness questions where diverse perspectives are worth the cost.
 argument-hint: <prompt to debate>
 ---
 

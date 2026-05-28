@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Systematic root-cause debugging from a symptom — Claude forms first hypothesis, /codex:reason at xhigh generates independent hypotheses, /agy:longctx scans the repo for similar patterns or where else the bug might live. Use whenever the user reports a bug, intermittent failure, mystery behavior, or asks 'why is this happening'. Default debugging path in this marketplace.
+description: (context-hub:debug) Systematic root-cause debugging from a symptom — Claude forms first hypothesis, /codex:reason at xhigh generates independent hypotheses, /agy:longctx scans the repo for similar patterns or where else the bug might live. Use whenever the user reports a bug, intermittent failure, mystery behavior, or asks 'why is this happening'. Default debugging path in this marketplace.
 argument-hint: <symptom or bug description>
 ---
 

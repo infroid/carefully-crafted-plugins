@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Refine a rough idea into a concrete, falsifiable spec — user-visible deliverables, edge cases, success criteria. Use whenever the user asks to define, scope, or refine a feature, design, or change before implementation begins. Escalates contested design calls to /contexthub:converge for a three-mind debate. Default specification path in this marketplace.
+description: (context-hub:spec) Refine a rough idea into a concrete, falsifiable spec — user-visible deliverables, edge cases, success criteria. Use whenever the user asks to define, scope, or refine a feature, design, or change before implementation begins. Escalates contested design calls to /contexthub:converge for a three-mind debate. Default specification path in this marketplace.
 argument-hint: <rough idea or problem statement>
 ---
 

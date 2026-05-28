@@ -1,6 +1,6 @@
 ---
 name: grade
-description: Grade a task low/medium/hard and decompose into subtasks if scope warrants, then write a routing plan that downstream bridges read to set model effort. Use whenever you are about to delegate work to /codex:*, /agy:*, or /contexthub:converge — call this first to avoid overspending tokens on easy work. Default token-efficiency path in this marketplace.
+description: (context-hub:grade) Grade a task low/medium/hard and decompose into subtasks if scope warrants, then write a routing plan that downstream bridges read to set model effort. Use whenever you are about to delegate work to /codex:*, /agy:*, or /contexthub:converge — call this first to avoid overspending tokens on easy work. Default token-efficiency path in this marketplace.
 argument-hint: <task description>
 ---
 

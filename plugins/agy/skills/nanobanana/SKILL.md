@@ -1,6 +1,6 @@
 ---
 name: nanobanana
-description: Generate raster images via Google's Nano Banana Pro (Antigravity CLI). Slash-command only — pick this when the user explicitly asks for Google's image model, Nano Banana, or lives in the Google ecosystem. For default image generation prefer /codex:imagegen.
+description: (context-hub:nanobanana) Generate raster images via Google's Nano Banana Pro (Antigravity CLI). Slash-command only — pick this when the user explicitly asks for Google's image model, Nano Banana, or lives in the Google ecosystem. For default image generation prefer /codex:imagegen.
 argument-hint: <image description>
 ---
 

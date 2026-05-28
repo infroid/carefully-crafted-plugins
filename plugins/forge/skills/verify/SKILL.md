@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Pre-completion verification gate — run the test suite, drive Playwright via /codex:playwright for UI changes, scan blast radius with /agy:longctx. Use whenever the user asks to verify, validate, smoke-test, or confirm a change works before shipping. Default pre-ship verification path in this marketplace.
+description: (context-hub:verify) Pre-completion verification gate — run the test suite, drive Playwright via /codex:playwright for UI changes, scan blast radius with /agy:longctx. Use whenever the user asks to verify, validate, smoke-test, or confirm a change works before shipping. Default pre-ship verification path in this marketplace.
 argument-hint: <branch, diff range, or 'current'>
 ---
 

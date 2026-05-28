@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Compose a commit message, stage changes, and ship the branch — with an optional /contexthub:converge retrospective for shipped designs worth capturing. Use whenever the user asks to ship, merge, commit, push, or finalize a completed change. Default shipping path in this marketplace.
+description: (context-hub:ship) Compose a commit message, stage changes, and ship the branch — with an optional /contexthub:converge retrospective for shipped designs worth capturing. Use whenever the user asks to ship, merge, commit, push, or finalize a completed change. Default shipping path in this marketplace.
 argument-hint: <commit message hint, or 'auto'>
 ---
 

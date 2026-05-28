@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Convert an approved spec into a step-by-step task plan with exact file paths and verification steps. Use whenever the user asks to plan, decompose, break down, or implement-strategy a feature or change. Stress-tests the plan with /codex:reason for edge cases and verifies coverage with /agy:longctx when the plan touches many files. Default planning path in this marketplace.
+description: (context-hub:plan) Convert an approved spec into a step-by-step task plan with exact file paths and verification steps. Use whenever the user asks to plan, decompose, break down, or implement-strategy a feature or change. Stress-tests the plan with /codex:reason for edge cases and verifies coverage with /agy:longctx when the plan touches many files. Default planning path in this marketplace.
 argument-hint: <path to spec, or paste the spec directly>
 ---
 
