@@ -155,6 +155,7 @@ test("--install-extension --dry-run prints the gemini command and does not run i
     const res = runCli(["--install-extension", "--dry-run"], { PATH: bins }, REPO_ROOT);
     assert.equal(res.status, 0, res.stderr);
     assert.match(res.stdout, /\[dry-run\] would run: gemini extensions install/);
+    assert.match(res.stdout, /--skip-settings/); // must be non-interactive (no API-key prompt hang)
   } finally {
     fs.rmSync(bins, { recursive: true, force: true });
   }
