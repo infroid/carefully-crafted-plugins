@@ -1,47 +1,85 @@
 ---
 name: nanobanana
-description: (context-hub:nanobanana) Generate raster images via Google's Nano Banana Pro (Antigravity CLI). Slash-command only — pick this when the user explicitly asks for Google's image model, Nano Banana, or lives in the Google ecosystem. For default image generation prefer /codex:imagegen.
-argument-hint: <image description>
+description: (context-hub:nanobanana) Generate and manipulate images with Google's Nano Banana (Gemini image models) — text-to-image plus sequential story/multi-scene generation, natural-language editing, photo restoration, app icons, seamless patterns, and technical diagrams. Routes to the nanobanana MCP server's structured tools when wired into Claude Code, and falls back to agy-direct generation for simple one-offs. For default image generation prefer /codex:imagegen; reach for this for Google's image style or the story/edit/restore/icon/pattern/diagram capabilities. Setup is explicit via /agy:setup. Slash-command only: invoke as /agy:nanobanana <description>.
+argument-hint: <image, or story/edit/restore/icon/pattern/diagram request>
 ---
 
-# Image Generation via Antigravity (Nano Banana Pro)
+# Image Generation & Editing via Nano Banana
 
-You are about to delegate raster image generation to Antigravity CLI, which
-routes the request to **Nano Banana Pro** (Google DeepMind's image model).
-Claude Code cannot natively produce raster images.
+Two backends produce images here; this skill picks the best **available** one
+and never sets anything up implicitly.
 
-Two image bridges exist in this marketplace; pick deliberately:
+- **MCP backend (preferred)** — the `nanobanana` Gemini-CLI extension's MCP
+  server wired into Claude Code. Gives seven structured tools: `generate_image`,
+  `generate_story` (sequential/multi-scene), `edit_image`, `restore_image`,
+  `generate_icon`, `generate_pattern`, `generate_diagram`. Full parameter
+  control; artifacts go to a `nanobanana-output/` dir (relative to the server's
+  launch dir — report the absolute path the tool returns, not an assumed one).
+  Requires one-time, explicit setup (`/agy:setup`) — a `NANOBANANA_API_KEY` and
+  a server build.
+- **agy-direct fallback** — `agy -p "generate an image…"`. Simple text→image
+  only; no story/edit/icon/etc. Antigravity saves into its own sandbox and
+  ignores requested paths, so we retrieve the file with `--collect`.
 
-- `/codex:imagegen` — OpenAI's `gpt-image-2` (default), with the structured
-  5-section handoff, constraint/design-system files, and audit trail.
-- `/agy:nanobanana` (this skill) — Google's Nano Banana Pro, light and direct.
-  Reach for it when the user wants Google's image-model style, has Antigravity
-  credentials configured, or is already in the Google ecosystem.
+Capability/parameter detail: [references/capabilities.md](references/capabilities.md).
+Setup detail: [references/setup.md](references/setup.md).
 
 ## Your input
 
-When invoked as `/agy:nanobanana <description>`, the user's text arrives as
-`$ARGUMENTS` — that is the visual brief. Write it the way a designer briefs
-an illustrator: subject, mood, composition, what it should evoke.
+`/agy:nanobanana <description>` arrives as `$ARGUMENTS` — the visual brief.
+Note which capability it implies (a plain image, a multi-scene **story**, an
+**edit** of an existing file, a **diagram**, an **icon**, etc.).
 
-## Step 1: Frame the request
+## Step 0: Detect the backend
 
-Make the intent unambiguous to Antigravity ("Generate an image of …",
-"Create a 256×256 PNG icon for …"), and include an output-path preference:
-the exact path, filename, dimensions, and format if any of them matter.
-Antigravity will pick the artifact location otherwise.
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/nanobanana-detect.mjs
+```
 
-## Step 2: Invoke
+Read the JSON: `backend` is `"mcp"`, `"agy"`, or `"none"`; `mcpReady` means the
+server is built and the key is set (it may still need loading into the session).
+
+## Step 1: Route
+
+**A. nanobanana MCP tools are available in this session** (you can see tools
+like `generate_image` / `generate_story`, or `mcp__*nanobanana*`):
+call the tool that matches the intent and pass parameters from
+[capabilities.md](references/capabilities.md). Examples:
+- multi-scene story → `generate_story` (`steps`, `style:"consistent"`, `layout`)
+- edit an existing image → `edit_image` (`prompt`, `file`)
+- icon set → `generate_icon` (`sizes`, `background:"transparent"`)
+- diagram → `generate_diagram` (`type`, `style`)
+For the Pro model, note `export NANOBANANA_MODEL=gemini-3-pro-image-preview`.
+
+**B. `mcpReady` is true but the tools are NOT in this session yet:** the backend
+is configured but unloaded. Tell the user to run `/mcp` (or `/reload-plugins`,
+or restart Claude Code) so the `nanobanana` server connects, then retry. Do not
+fall back silently — the structured tools are what they set up.
+
+**C. Backend is `none`/`agy` and the request is a simple single image:** use the
+agy-direct fallback. Pick an output dir the user wants (default: their cwd):
 
 ```bash
 AGY_TIMEOUT_SEC=300 node ${CLAUDE_PLUGIN_ROOT}/scripts/agy-invoke.mjs \
-  --prompt "Generate an image: <description>. Save as <path/filename.png>."
+  --prompt "Generate an image: <brief>. Save it as a PNG." \
+  --collect "<output-dir>"
 ```
 
-The 300s timeout accommodates image-generation runtime.
+`--collect` copies the artifact out of Antigravity's sandbox into `<output-dir>`
+and prints `collected: <path>`.
 
-## Step 3: Report
+**D. The request needs a structured capability (story/edit/restore/icon/pattern/
+diagram) but the MCP backend isn't ready:** do NOT install anything silently.
+Explain that this capability lives in the nanobanana MCP backend and offer to
+walk through setup together: **`/agy:setup`**. agy-direct cannot do these
+reliably. Proceed only with the user's go-ahead.
 
-Relay where Antigravity saved the image, mention any visual choices it
-documented, and offer to iterate. If Antigravity declined or fell back to a
-non-image output, say so plainly — do not pretend an image was produced.
+## Step 2: Report
+
+State the saved path(s) and any visual choices. For MCP tools, report the
+absolute paths from `generatedFiles` verbatim (don't assume `./nanobanana-output/`).
+For the agy fallback, report the `collected:` path (and
+note it was simple generation via agy-direct, not the structured tools). If a
+backend declined or fell back to non-image output, say so plainly — never claim
+an image was produced when it wasn't. Offer to iterate (e.g. `edit_image` on the
+result, or re-run with a different style/model).
