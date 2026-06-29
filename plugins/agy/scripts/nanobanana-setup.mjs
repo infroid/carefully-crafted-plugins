@@ -10,8 +10,10 @@
 //        report backend readiness + next steps (read-only; the default).
 //
 //   node nanobanana-setup.mjs --install-extension [--dry-run]
-//        `gemini extensions install https://github.com/gemini-cli-extensions/nanobanana --consent`
+//        `gemini extensions install <repo> --consent --skip-settings`
 //        (requires the gemini CLI; clones the extension into ~/.gemini/extensions).
+//        --skip-settings avoids gemini's interactive API-key prompt; the key is
+//        supplied later via env-expansion in the wired MCP config.
 //
 //   node nanobanana-setup.mjs --build [--dry-run]
 //        build the extension's MCP server (npm install in mcp-server/, which
@@ -136,7 +138,8 @@ function run(cmd, cmdArgs, { dryRun, cwd } = {}) {
     return 0;
   }
   console.log(`+ ${printable}`);
-  const res = spawnSync(cmd, cmdArgs, { stdio: "inherit", cwd });
+  // stdin is /dev/null: a setup step must never block on an interactive prompt.
+  const res = spawnSync(cmd, cmdArgs, { stdio: ["ignore", "inherit", "inherit"], cwd });
   if (res.error && res.error.code === "ENOENT") {
     console.error(`error: '${cmd}' not found on PATH.`);
     return 127;
@@ -149,7 +152,11 @@ function installExtension({ dryRun, env, home }) {
     console.error("error: gemini CLI not found. Install it first, then re-run --install-extension.");
     return 1;
   }
-  return run("gemini", ["extensions", "install", REPO_URL, "--consent"], { dryRun });
+  // --skip-settings: the extension declares an "API Key" setting that gemini
+  // would otherwise PROMPT for interactively (hanging a non-interactive run).
+  // We supply the key via ${NANOBANANA_API_KEY} env-expansion in the wired MCP
+  // config instead, so we skip gemini's settings step entirely.
+  return run("gemini", ["extensions", "install", REPO_URL, "--consent", "--skip-settings"], { dryRun });
 }
 
 function buildServer({ dryRun, env, home }) {
