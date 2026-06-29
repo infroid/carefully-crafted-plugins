@@ -115,7 +115,14 @@ routes to `generate_story`.
   or restart.
 - **Server connects but every call errors with auth** → `NANOBANANA_API_KEY` is
   unset or invalid in the environment Claude Code was launched from. Export a
-  valid key and restart.
+  valid key and restart. (Claude Code expands `${NANOBANANA_API_KEY}` from the
+  env it is *launched* with — so export it in that shell, not just `~/.zshrc`.)
+- **Tool calls fail with `429 RESOURCE_EXHAUSTED` / `limit: 0`** → the Nano Banana
+  image models are **paid-only**; a free-tier Gemini API key has *zero* image
+  quota, so generation fails even though auth and the model list succeed. Enable
+  billing on the key's Google AI Studio / Cloud project. Until then, use the
+  **agy-direct fallback** (`/agy:nanobanana <simple image>`), which routes through
+  your Antigravity quota instead of a billable API key.
 - **`--build` fails** → ensure Node ≥ 20 and network access for `npm install`;
   re-run. You can build manually: `cd ~/.gemini/extensions/nanobanana/mcp-server && npm install`.
 - **Wrong/unexpected save location** → MCP tools write to `nanobanana-output/`

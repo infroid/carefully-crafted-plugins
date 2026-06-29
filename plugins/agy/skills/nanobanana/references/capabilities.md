@@ -107,6 +107,13 @@ the Pro model. Note these `-preview` IDs are the extension's; the standalone GA
 API id `gemini-3-pro-image` (no suffix) is a *different* string and not
 interchangeable here.
 
+**Billing required:** all Nano Banana image models are **paid** — a free-tier
+Gemini API key returns `429 RESOURCE_EXHAUSTED` with `limit: 0` for every image
+model (auth and the text models still work). Enable billing on the key's AI
+Studio / Google Cloud project to generate. The `/agy:nanobanana` agy-direct
+fallback needs no billable key (it uses your Antigravity quota) but only does
+simple generation.
+
 ## Underlying API capabilities NOT exposed as MCP params (know the ceiling)
 The Gemini image API can do more than the extension's tool schemas surface.
 These are reachable only by describing them **in the prompt text**, not as
