@@ -83,6 +83,28 @@ test("missing --prompt exits 2", () => {
   }
 });
 
+test("a prompt value beginning with -- is accepted, not misparsed", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--prompt", "--make a banana, no text"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.deepEqual(recordedArgv(ctx.recordFile), ["-p", "--make a banana, no text"]);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--prompt=value form is supported", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--prompt=hello world"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.deepEqual(recordedArgv(ctx.recordFile), ["-p", "hello world"]);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
 test("non-zero agy exit is categorized and surfaced", () => {
   const ctx = setup();
   try {

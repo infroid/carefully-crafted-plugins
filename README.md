@@ -45,16 +45,25 @@ brings capabilities Claude Code lacks:
 
 - 1M-token long-context analysis on Gemini 3 Pro (up to 2M enterprise) —
   roughly 5× what Claude Code can hold
-- Image generation via Nano Banana Pro
+- Image generation **and** editing via Nano Banana (Gemini image models):
+  text→image plus sequential **story**/multi-scene, natural-language **edit**,
+  photo **restore**, **icon**, seamless **pattern**, and **diagram** — through
+  the `nanobanana` MCP backend, with an agy-direct fallback for simple one-offs
 - Video generation via Veo
 - Raw `agy -p` passthrough
 
 ```
 /agy:longctx     audit @src/ and @packages/ for callsites that bypass requireAuth
-/agy:nanobanana  generate a 256x256 todo icon using Google's Nano Banana Pro
+/agy:nanobanana  a four-panel story of a seed growing into a tree
+/agy:setup       wire up the Nano Banana MCP backend (explicit, collaborative)
 /agy:veo         generate a 6-second product demo showing the hero feature
 /agy:exec        <any raw prompt to agy>
 ```
+
+The richer Nano Banana capabilities (story, edit, restore, icon, pattern,
+diagram) run through an MCP server that you wire into Claude Code **explicitly**
+via `/agy:setup` — nothing installs or touches your API key implicitly. Until
+then, `/agy:nanobanana` still does simple generation through agy directly.
 
 ### `contexthub` — the multi-agent hub
 
@@ -147,8 +156,12 @@ plugins/
 │       └── output-schema.json
 ├── agy/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{longctx,nanobanana,veo,exec}/SKILL.md
-│   └── scripts/agy-invoke.mjs   # wraps Antigravity's `agy -p`
+│   ├── skills/{longctx,nanobanana,veo,exec,setup}/SKILL.md
+│   │   └── nanobanana/references/{capabilities,setup}.md  # tool surface + setup
+│   └── scripts/
+│       ├── agy-invoke.mjs        # wraps `agy -p` (+ --collect artifact retrieval)
+│       ├── nanobanana-detect.mjs # which image backend is usable (mcp/agy/none)
+│       └── nanobanana-setup.mjs  # explicit, flag-gated Nano Banana MCP wiring
 └── contexthub/
     ├── .claude-plugin/plugin.json
     ├── skills/{spec,plan,tdd,review,verify,debug,ship}/SKILL.md  # lifecycle

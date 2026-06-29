@@ -4,6 +4,7 @@
 //
 // Usage:
 //   node agy-invoke.mjs --prompt "<task>" [--json] [--cwd <dir>] [--verbose]
+//                       [--collect <dir>]
 //
 // Flags:
 //   --prompt "<task>"   the task to hand to Antigravity (required)
@@ -11,6 +12,13 @@
 //   --cwd <dir>         working directory for the agy process
 //   --verbose           stream Antigravity's stderr trace; off by default to
 //                       keep the caller's context clean
+//   --collect <dir>     after a successful run, scan agy's stdout for produced
+//                       artifact paths (file:// links or absolute media paths)
+//                       and copy them into <dir>. Antigravity writes images to
+//                       its own sandbox (~/.gemini/antigravity-cli/scratch/) and
+//                       ignores prompt-stated save paths, so this is how the
+//                       agy-direct image fallback lands artifacts where the
+//                       caller asked. Prints "collected: <dest>" per file.
 //
 // Env (a flag wins over its env equivalent):
 //   AGY_BIN             path to the agy binary, default "agy"
@@ -41,15 +49,97 @@
 //   2  invocation/config error
 
 import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-function parseArgs(argv) {
+// Media extensions agy might produce. Used to spot bare absolute paths in prose.
+const MEDIA_RE = /\.(png|jpe?g|webp|gif|svg|bmp|tiff?|mp4|mov|webm|m4v|avif)$/i;
+
+// Scan agy's stdout for artifact paths it reports. Antigravity surfaces results
+// as markdown links `[name](file:///abs/path)` and sometimes as bare absolute
+// paths in prose. Returns a de-duplicated list of existing local file paths.
+export function parseArtifacts(stdout) {
+  const found = new Set();
+  const text = stdout || "";
+
+  // file:// URIs (decode %20 etc.)
+  for (const m of text.matchAll(/file:\/\/(\/[^\s)'"<>]+)/g)) {
+    try {
+      found.add(decodeURIComponent(m[1]));
+    } catch {
+      found.add(m[1]);
+    }
+  }
+  // Bare absolute media paths (POSIX). Trim trailing markdown/punctuation
+  // (closing parens/brackets, quotes, commas, periods, asterisks, backticks).
+  for (const m of text.matchAll(/(?:^|[\s('"`*[])(\/[^\s)'"<>`]+)/g)) {
+    const p = m[1].replace(/[)\].,'"`*]+$/, "");
+    if (MEDIA_RE.test(p)) found.add(p);
+  }
+
+  return [...found].filter((p) => {
+    try {
+      return fs.statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+// Copy collected artifacts into destDir without clobbering: on a name clash add
+// a numeric suffix. Returns the list of destination paths written.
+export function collectArtifacts(stdout, destDir) {
+  const artifacts = parseArtifacts(stdout);
+  if (artifacts.length === 0) return [];
+  fs.mkdirSync(destDir, { recursive: true });
+  const written = [];
+  for (const src of artifacts) {
+    const ext = path.extname(src);
+    const base = path.basename(src, ext);
+    let dest = path.join(destDir, base + ext);
+    let n = 1;
+    while (fs.existsSync(dest) && fs.realpathSync(dest) !== safeRealpath(src)) {
+      dest = path.join(destDir, `${base}-${n}${ext}`);
+      n++;
+    }
+    if (!(fs.existsSync(dest) && fs.realpathSync(dest) === safeRealpath(src))) {
+      fs.copyFileSync(src, dest);
+    }
+    written.push(dest);
+  }
+  return written;
+}
+
+function safeRealpath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+// valueFlags are flags that always take the following token as their value —
+// even if that token itself starts with "--" (e.g. a prompt that begins with a
+// dash). `--key=value` is also accepted. Unknown flags keep the boolean
+// heuristic (a following "--…" token starts a new flag).
+function parseArgs(argv, valueFlags = new Set()) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
-    const key = a.slice(2);
+    const body = a.slice(2);
+    const eq = body.indexOf("=");
+    if (eq !== -1) {
+      args[body.slice(0, eq)] = body.slice(eq + 1);
+      continue;
+    }
+    const key = body;
     const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) {
+    if (valueFlags.has(key)) {
+      if (next === undefined) args[key] = true;
+      else { args[key] = next; i++; }
+    } else if (next === undefined || next.startsWith("--")) {
       args[key] = true;
     } else {
       args[key] = next;
@@ -115,7 +205,7 @@ function runAgy({ agyBin, agyArgs, cwd, timeoutMs, verbose }) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2), new Set(["prompt", "cwd", "collect"]));
   const agyBin = process.env.AGY_BIN || "agy";
   const timeoutMs = Math.max(1, Number(process.env.AGY_TIMEOUT_SEC) || 600) * 1000;
   const verbose = args["verbose"] === true || process.env.AGY_VERBOSE === "1";
@@ -146,7 +236,25 @@ async function main() {
     }
     process.exit(1);
   }
+
+  if (typeof args["collect"] === "string") {
+    try {
+      const written = collectArtifacts(result.stdout, args["collect"]);
+      if (written.length === 0) {
+        console.error("agy-invoke: --collect found no artifact paths in agy output.");
+      } else {
+        for (const dest of written) console.log(`collected: ${dest}`);
+      }
+    } catch (err) {
+      console.error(`agy-invoke: --collect failed: ${err.message}`);
+    }
+  }
+
   process.exit(0);
 }
 
-main();
+// Only run the CLI when executed directly, so tests can import the exported
+// helpers (parseArtifacts/collectArtifacts) without triggering a real run.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
