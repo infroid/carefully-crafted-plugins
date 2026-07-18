@@ -166,36 +166,81 @@ function validateReview(obj) {
   return errors;
 }
 
-// Truncates the middle of a string (keeping start and end) so any single
-// display field has a hard byte ceiling, without ever dropping a finding
-// entry. This is display-only — it never touches the validated data or the
-// on-disk result file.
-function truncateMiddle(s, maxLen) {
-  if (s.length <= maxLen) return s;
-  const keep = Math.max(1, maxLen - 1);
-  const head = Math.ceil(keep * 0.6);
-  const tail = keep - head;
-  return `${s.slice(0, head)}…${tail > 0 ? s.slice(s.length - tail) : ""}`;
+const byteLen = (s) => Buffer.byteLength(s, "utf8");
+
+// All display truncation below budgets in UTF-8 BYTES, not characters. The
+// schema's field limits are in characters, which only coincide with bytes for
+// ASCII — a schema-valid 480-character CJK scope is 1440 bytes. Iterating by
+// code point (`for...of`, not `.slice`) keeps surrogate pairs intact, so a
+// truncated field is never invalid UTF-8.
+const ELLIPSIS = "…";
+const ELLIPSIS_BYTES = byteLen(ELLIPSIS);
+
+function truncateToBytes(s, maxBytes) {
+  if (maxBytes <= 0) return "";
+  if (byteLen(s) <= maxBytes) return s;
+  const useEllipsis = maxBytes >= ELLIPSIS_BYTES;
+  const budget = useEllipsis ? maxBytes - ELLIPSIS_BYTES : maxBytes;
+  let out = "";
+  let used = 0;
+  for (const ch of s) {
+    const b = byteLen(ch);
+    if (used + b > budget) break;
+    out += ch;
+    used += b;
+  }
+  return useEllipsis ? out + ELLIPSIS : out;
 }
 
-function renderReviewIndex(review, resultPath, pathCap, titleCap) {
+// Middle truncation keeps both ends of a path visible (`src/a/…/file.ts`),
+// which is more useful than a head-only cut for deeply nested files.
+function truncateMiddleToBytes(s, maxBytes) {
+  if (maxBytes <= 0) return "";
+  if (byteLen(s) <= maxBytes) return s;
+  if (maxBytes < ELLIPSIS_BYTES) return truncateToBytes(s, maxBytes);
+  const budget = maxBytes - ELLIPSIS_BYTES;
+  const headBudget = Math.ceil(budget * 0.6);
+  const tailBudget = budget - headBudget;
+  const chars = Array.from(s);
+  let head = "";
+  let headUsed = 0;
+  for (const ch of chars) {
+    const b = byteLen(ch);
+    if (headUsed + b > headBudget) break;
+    head += ch;
+    headUsed += b;
+  }
+  let tail = "";
+  let tailUsed = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const b = byteLen(chars[i]);
+    if (tailUsed + b > tailBudget) break;
+    tail = chars[i] + tail;
+    tailUsed += b;
+  }
+  return head + ELLIPSIS + tail;
+}
+
+// `caps` bounds every free-text field in bytes: scope, each limitation, and
+// each finding's path and title. Infinity means "print verbatim".
+function renderReviewIndex(review, resultPath, caps) {
   const lines = [];
   lines.push("=== Codex Review Result ===");
   lines.push(`Status: ${review.status}`);
-  lines.push(`Scope: ${review.scope}`);
+  lines.push(`Scope: ${truncateToBytes(review.scope, caps.scopeCap)}`);
   lines.push(`Full result: ${resultPath}`);
   lines.push(`Findings: ${review.findings.length}`);
   if (review.limitations.length) {
     lines.push("Limitations:");
-    for (const l of review.limitations) lines.push(`  - ${l}`);
+    for (const l of review.limitations) lines.push(`  - ${truncateToBytes(l, caps.limitationCap)}`);
   } else {
     lines.push("Limitations: (none)");
   }
   lines.push("");
   if (review.findings.length) {
     for (const f of review.findings) {
-      const path = truncateMiddle(f.path, pathCap);
-      const title = truncateMiddle(f.title, titleCap);
+      const path = truncateMiddleToBytes(f.path, caps.pathCap);
+      const title = truncateToBytes(f.title, caps.titleCap);
       const line = f.line === null ? "null" : f.line;
       lines.push(`${f.id} ${f.severity}/${f.confidence} ${path}:${line} ${title}`);
     }
@@ -205,19 +250,61 @@ function renderReviewIndex(review, resultPath, pathCap, titleCap) {
   return lines.join("\n") + "\n";
 }
 
-// Builds the compact index, shrinking per-finding display fields if needed so
-// the result is provably <= MAX_INDEX_BYTES. Every finding ID is always kept
-// — only the free-text display width shrinks, never an entry is dropped.
+// Builds the compact index within MAX_INDEX_BYTES.
+//
+// Guarantee: the output is <= MAX_INDEX_BYTES whenever the mandatory skeleton
+// itself fits. The skeleton is never truncated to make room — it carries the
+// two properties the index exists to provide: the full-result path is always
+// named, and every finding contributes exactly one line keyed by its ID. Only
+// free text (scope, limitations, paths, titles) is shrunk, and no finding is
+// ever dropped. If a pathological result path made even the skeleton exceed
+// the cap, the skeleton still wins over the byte budget — losing the artifact
+// path or a finding ID would defeat the purpose of the index.
 function buildReviewIndex(review, resultPath) {
-  let pathCap = 60;
-  let titleCap = MAX_TITLE_LEN;
-  let index = renderReviewIndex(review, resultPath, pathCap, titleCap);
-  for (let attempt = 0; attempt < 8 && Buffer.byteLength(index, "utf8") > MAX_INDEX_BYTES; attempt++) {
-    pathCap = Math.max(8, Math.floor(pathCap * 0.6));
-    titleCap = Math.max(16, Math.floor(titleCap * 0.7));
-    index = renderReviewIndex(review, resultPath, pathCap, titleCap);
+  const UNCAPPED = {
+    scopeCap: Infinity, limitationCap: Infinity, pathCap: Infinity, titleCap: Infinity,
+  };
+  const verbatim = renderReviewIndex(review, resultPath, UNCAPPED);
+  if (byteLen(verbatim) <= MAX_INDEX_BYTES) return verbatim;
+
+  const { findings, limitations } = review;
+
+  // Measure the mandatory skeleton exactly: every byte the renderer emits
+  // that is NOT a free-text field.
+  let mandatory = 0;
+  mandatory += byteLen("=== Codex Review Result ===\n");
+  mandatory += byteLen(`Status: ${review.status}\n`);
+  mandatory += byteLen("Scope: \n");
+  mandatory += byteLen(`Full result: ${resultPath}\n`);
+  mandatory += byteLen(`Findings: ${findings.length}\n`);
+  if (limitations.length) {
+    mandatory += byteLen("Limitations:\n") + limitations.length * byteLen("  - \n");
+  } else {
+    mandatory += byteLen("Limitations: (none)\n");
   }
-  return index;
+  mandatory += byteLen("\n");
+  if (findings.length) {
+    for (const f of findings) {
+      const line = f.line === null ? "null" : f.line;
+      mandatory += byteLen(`${f.id} ${f.severity}/${f.confidence} :${line} \n`);
+    }
+  } else {
+    mandatory += byteLen("(no findings)\n");
+  }
+
+  // Split what's left across the free-text fields. Because each field is
+  // truncated to at most its cap and the caps sum to at most `free`, the
+  // rendered total is at most mandatory + free = MAX_INDEX_BYTES.
+  const free = Math.max(0, MAX_INDEX_BYTES - mandatory);
+  const scopeCap = Math.floor(free * 0.12);
+  const limitationsBudget = Math.floor(free * 0.28);
+  const limitationCap = limitations.length ? Math.floor(limitationsBudget / limitations.length) : 0;
+  const findingsBudget = free - scopeCap - limitationsBudget;
+  const perFinding = findings.length ? Math.floor(findingsBudget / findings.length) : 0;
+  const pathCap = Math.floor(perFinding * 0.4);
+  const titleCap = perFinding - pathCap;
+
+  return renderReviewIndex(review, resultPath, { scopeCap, limitationCap, pathCap, titleCap });
 }
 
 function runReviewType({ specPath, resultPath }) {

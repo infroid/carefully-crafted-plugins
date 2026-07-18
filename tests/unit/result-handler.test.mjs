@@ -452,10 +452,15 @@ test("review: malformed (non-JSON) result fails validation (never becomes NO_FIN
   }
 });
 
-test("review: the largest valid index is at most 8192 UTF-8 bytes and names the full result path", () => {
-  const findings = Array.from({ length: 20 }, (_, i) =>
+// The index budget is measured in UTF-8 BYTES, but every declared field limit
+// in the schema is measured in CHARACTERS. For ASCII those coincide; for
+// multi-byte content they do not. Both worst cases below are schema-valid at
+// their character limits, so the renderer must hold the byte cap for each.
+
+function maximalFindings(fill) {
+  return Array.from({ length: 20 }, (_, i) =>
     makeFinding(i + 1, {
-      title: "T".repeat(160),
+      title: fill("T", 160),
       path: "src/" + "deep/".repeat(30) + "very-long-file-name-for-testing-truncation.ts",
       claim: "C".repeat(480),
       evidence: "E".repeat(480),
@@ -464,24 +469,70 @@ test("review: the largest valid index is at most 8192 UTF-8 bytes and names the 
       severity: "critical",
       confidence: "medium",
     }));
+}
+
+function assertBoundedIndex(res, resultPath) {
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  const byteLength = Buffer.byteLength(res.stdout, "utf8");
+  assert.ok(byteLength <= 8192, `index is ${byteLength} bytes, must be <= 8192`);
+  // Never sacrifice the two hard guarantees to fit the budget.
+  assert.match(res.stdout, new RegExp(resultPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (let i = 1; i <= 20; i++) {
+    const id = `F-${String(i).padStart(3, "0")}`;
+    const occurrences = (res.stdout.match(new RegExp(id, "g")) || []).length;
+    assert.equal(occurrences, 1, `${id} should appear exactly once`);
+  }
+  // Truncation must never split a multi-byte character into invalid UTF-8.
+  assert.ok(!res.stdout.includes("�"), "index must not contain replacement characters");
+  return byteLength;
+}
+
+test("review: the largest valid ASCII index is at most 8192 UTF-8 bytes and names the full result path", () => {
   const review = {
     status: "FINDINGS",
     scope: "S".repeat(480),
-    findings,
+    findings: maximalFindings((c, n) => c.repeat(n)),
     limitations: Array.from({ length: 8 }, () => "L".repeat(240)),
   };
   const { dir, specPath, resultPath } = setupReviewCase(JSON.stringify(review));
   try {
-    const res = run(["--spec-path", specPath, "--type", "review"]);
-    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
-    const byteLength = Buffer.byteLength(res.stdout, "utf8");
-    assert.ok(byteLength <= 8192, `index is ${byteLength} bytes, must be <= 8192`);
-    assert.match(res.stdout, new RegExp(resultPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    for (let i = 1; i <= 20; i++) {
-      const id = `F-${String(i).padStart(3, "0")}`;
-      const occurrences = (res.stdout.match(new RegExp(id, "g")) || []).length;
-      assert.equal(occurrences, 1, `${id} should appear exactly once`);
-    }
+    assertBoundedIndex(run(["--spec-path", specPath, "--type", "review"]), resultPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review: the largest valid non-ASCII (CJK) index is at most 8192 UTF-8 bytes", () => {
+  // Every field is at its declared CHARACTER limit, but CJK codepoints are 3
+  // bytes each in UTF-8. scope (480 chars) + 8 limitations (240 chars each)
+  // alone are ~7200 bytes — fields an earlier implementation printed verbatim,
+  // busting the cap at 8535 bytes even after per-finding truncation.
+  const CJK = "限";
+  const review = {
+    status: "FINDINGS",
+    scope: CJK.repeat(480),
+    findings: maximalFindings((c, n) => c.repeat(n)),
+    limitations: Array.from({ length: 8 }, () => CJK.repeat(240)),
+  };
+  const { dir, specPath, resultPath } = setupReviewCase(JSON.stringify(review));
+  try {
+    assertBoundedIndex(run(["--spec-path", specPath, "--type", "review"]), resultPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("review: an all-CJK index (findings included) is at most 8192 UTF-8 bytes", () => {
+  const CJK = "限";
+  const review = {
+    status: "FINDINGS",
+    scope: CJK.repeat(480),
+    findings: maximalFindings((_c, n) => CJK.repeat(n)),
+    limitations: Array.from({ length: 8 }, () => CJK.repeat(240)),
+  };
+  const { dir, specPath, resultPath } = setupReviewCase(JSON.stringify(review));
+  try {
+    assertBoundedIndex(run(["--spec-path", specPath, "--type", "review"]), resultPath);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
