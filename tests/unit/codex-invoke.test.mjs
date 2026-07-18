@@ -120,7 +120,7 @@ test("sandbox defaults to read-only when not specified", () => {
       "--sandbox",
       "read-only",
       "-m",
-      "gpt-5.5",
+      "gpt-5.6-sol",
       "-c",
       "model_reasoning_effort=medium",
       "-c",
@@ -132,6 +132,22 @@ test("sandbox defaults to read-only when not specified", () => {
   }
 });
 
+const OFFICIAL_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"];
+
+for (const effort of OFFICIAL_EFFORTS) {
+  test(`accepts official --reasoning-effort ${effort}`, () => {
+    const ctx = setup();
+    try {
+      const res = run(["--raw", "hello", "--reasoning-effort", effort], ctx);
+      assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+      const argv = recordedArgv(ctx.recordFile);
+      assert.ok(argv.includes(`model_reasoning_effort=${effort}`));
+    } finally {
+      rmSync(ctx.dir, { recursive: true, force: true });
+    }
+  });
+}
+
 test("invalid --reasoning-effort exits 2", () => {
   const ctx = setup();
   try {
@@ -142,6 +158,26 @@ test("invalid --reasoning-effort exits 2", () => {
     rmSync(ctx.dir, { recursive: true, force: true });
   }
 });
+
+// The real Codex CLI performs NO validation on `-c model_reasoning_effort=<v>`
+// — `ultra` is silently accepted and billed. So the wrapper itself must be
+// the gate: every value outside OFFICIAL_EFFORTS must be rejected BEFORE
+// codex is ever spawned. We prove this by asserting the record file — which
+// the fake Codex only ever writes when it is actually invoked for a real
+// `exec` run — never gets created.
+for (const badEffort of ["ultra", "extreme", "very-high", "MEDIUM", ""]) {
+  test(`rejects non-official --reasoning-effort '${badEffort}' pre-spawn (Codex never invoked)`, () => {
+    const ctx = setup();
+    try {
+      const res = run(["--raw", "x", "--reasoning-effort", badEffort], ctx);
+      assert.equal(res.status, 2, `stderr: ${res.stderr}`);
+      assert.match(res.stderr, /invalid --reasoning-effort/);
+      assert.equal(existsSync(ctx.recordFile), false, "fake Codex must never have been invoked for a real run");
+    } finally {
+      rmSync(ctx.dir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("invalid --sandbox exits 2", () => {
   const ctx = setup();
@@ -182,6 +218,146 @@ test("--resume-last without --raw exits 2", () => {
     const res = run(["--resume-last"], ctx);
     assert.equal(res.status, 2);
     assert.match(res.stderr, /--resume-last requires --raw/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--resume <session-id> builds `exec --skip-git-repo-check resume <id> <prompt>`", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--resume", "9f2c1e3a-...-uuid", "--raw", "tighten the error handling"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.deepEqual(recordedArgv(ctx.recordFile), [
+      "exec",
+      "--skip-git-repo-check",
+      "resume",
+      "9f2c1e3a-...-uuid",
+      "tighten the error handling",
+    ]);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--resume without --raw exits 2", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--resume", "some-session-id"], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--resume requires --raw/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--resume and --resume-last together exit 2 pre-spawn (mutually exclusive)", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--resume", "abc", "--resume-last", "--raw", "x"], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /mutually exclusive/);
+    assert.equal(existsSync(ctx.recordFile), false);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit --sandbox wins over ambient CODEX_SANDBOX env", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--raw", "hello", "--sandbox", "read-only"], {
+      ...ctx,
+      extraEnv: { CODEX_SANDBOX: "workspace-write" },
+    });
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const argv = recordedArgv(ctx.recordFile);
+    assert.equal(argv[2], "--sandbox");
+    assert.equal(argv[3], "read-only");
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--output-schema in spec mode overrides the packaged default and propagates exactly", () => {
+  const ctx = setup();
+  try {
+    const specPath = writeSpec(ctx.dir);
+    const schemaPath = join(ctx.dir, "custom-schema.json");
+    writeFileSync(schemaPath, "{}", "utf8");
+    const res = run(["--spec-path", specPath, "--output-schema", schemaPath], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const argv = recordedArgv(ctx.recordFile);
+    const oi = argv.indexOf("--output-schema");
+    assert.ok(oi >= 0);
+    assert.equal(argv[oi + 1], schemaPath);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--output-schema pointing at a missing path exits 2", () => {
+  const ctx = setup();
+  try {
+    const specPath = writeSpec(ctx.dir);
+    const res = run(["--spec-path", specPath, "--output-schema", join(ctx.dir, "nope.json")], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--output-schema.*does not exist/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--output-schema pointing at a directory exits 2", () => {
+  const ctx = setup();
+  try {
+    const specPath = writeSpec(ctx.dir);
+    const res = run(["--spec-path", specPath, "--output-schema", ctx.dir], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--output-schema.*must be a file, not a directory/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--output-schema with --raw exits 2 pre-spawn (only valid in spec mode)", () => {
+  const ctx = setup();
+  try {
+    const schemaPath = join(ctx.dir, "s.json");
+    writeFileSync(schemaPath, "{}", "utf8");
+    const res = run(["--raw", "hello", "--output-schema", schemaPath], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--output-schema is only valid in spec mode/);
+    assert.equal(existsSync(ctx.recordFile), false);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("--output-schema with --resume-last exits 2 pre-spawn (only valid in spec mode)", () => {
+  const ctx = setup();
+  try {
+    const schemaPath = join(ctx.dir, "s.json");
+    writeFileSync(schemaPath, "{}", "utf8");
+    const res = run(["--resume-last", "--raw", "hello", "--output-schema", schemaPath], ctx);
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /--output-schema is only valid in spec mode/);
+    assert.equal(existsSync(ctx.recordFile), false);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("spec mode without explicit --output-schema falls back to the packaged output-schema.json", () => {
+  const ctx = setup();
+  try {
+    const specPath = writeSpec(ctx.dir);
+    const res = run(["--spec-path", specPath], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const argv = recordedArgv(ctx.recordFile);
+    const oi = argv.indexOf("--output-schema");
+    assert.ok(oi >= 0);
+    assert.match(argv[oi + 1], /output-schema\.json$/);
   } finally {
     rmSync(ctx.dir, { recursive: true, force: true });
   }

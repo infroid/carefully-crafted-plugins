@@ -1,6 +1,6 @@
 ---
 name: reason
-description: (context-hub:reason) Delegate hard reasoning to OpenAI Codex at maximum effort (gpt-5.5, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging hypotheses, architecture trade-offs, or describes a problem as "hard", "tricky", "stuck on", or "can't figure out" — even if they don't name Codex. Default deep-reasoning path in this marketplace.
+description: (context-hub:reason) Delegate hard reasoning to OpenAI Codex at maximum effort (GPT-5.6 Sol, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging, or architecture trade-offs — even if they don't name Codex. Default deep-reasoning path in this marketplace.
 argument-hint: <problem statement>
 ---
 
@@ -71,9 +71,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
   path.
 - `--reasoning-effort xhigh` is explicit — this skill is the hard-reasoning
   specialist, so we burn the strongest setting on purpose. The wrapper's
-  default is `medium`; the contexthub triage skill grades down to that or up here
-  depending on task difficulty.
-- Model defaults to `gpt-5.5`. Only add `--model <name>` if the user
+  default is `medium`; escalate further to `max` only for genuinely extreme
+  cases.
+- Model defaults to `gpt-5.6-sol`. Only add `--model <name>` if the user
   explicitly names one.
 
 ## Step 4: Report

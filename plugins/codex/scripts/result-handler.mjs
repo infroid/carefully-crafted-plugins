@@ -3,14 +3,259 @@
 // to the handoff spec, and prints a summary for Claude Code to relay.
 //
 // Usage:
-//   node result-handler.mjs --spec-path <abs path> --type <image|text|code|data>
+//   node result-handler.mjs --spec-path <abs path> --type <image|text|code|data|review>
+//
+// --type review is a distinct, stricter contract: the result file must be a
+// structured code-review evidence object (see
+// reference/schemas/code-review.schema.json). The raw result file is never
+// modified — result-handler only reads it — and a validation failure (missing,
+// empty, malformed, or schema/semantic violation) is reported as a failure,
+// never silently downgraded to a "no findings" outcome. On success, a bounded
+// (<= 8192 UTF-8 bytes) compact index is printed to stdout that names the full
+// result path and accounts for every finding ID exactly once.
 //
 // Exit codes:
 //   0  success
+//   1  --type review: result content failed validation (never becomes NO_FINDINGS)
 //   2  invocation/config error (missing args, missing files)
 
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+
+// --- --type review: bounded, provenance-preserving structured evidence contract ---
+
+const REVIEW_STATUSES = new Set(["FINDINGS", "NO_FINDINGS", "INCOMPLETE"]);
+const REVIEW_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
+const REVIEW_CONFIDENCES = new Set(["high", "medium", "low"]);
+const REVIEW_TOP_FIELDS = ["status", "scope", "findings", "limitations"];
+const REVIEW_FINDING_FIELDS = [
+  "id", "severity", "title", "path", "line", "claim", "evidence", "impact", "confidence", "minimal_fix",
+];
+const MAX_FINDINGS = 20;
+const MAX_TITLE_LEN = 160;
+const MAX_TEXT_LEN = 480; // scope, claim, evidence, impact, minimal_fix
+const MAX_LIMITATIONS = 8;
+const MAX_LIMITATION_LEN = 240;
+const MAX_INDEX_BYTES = 8192;
+
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isBoundedString(v, maxLen) {
+  return typeof v === "string" && v.length >= 1 && v.length <= maxLen;
+}
+
+function validateFinding(f, idx, errors) {
+  if (!isPlainObject(f)) {
+    errors.push(`findings[${idx}] must be an object`);
+    return;
+  }
+  for (const k of Object.keys(f)) {
+    if (!REVIEW_FINDING_FIELDS.includes(k)) errors.push(`findings[${idx}] has unknown field "${k}"`);
+  }
+  for (const k of REVIEW_FINDING_FIELDS) {
+    if (!(k in f)) errors.push(`findings[${idx}] missing required field "${k}"`);
+  }
+  if (typeof f.id !== "string" || !/^F-\d{3}$/.test(f.id)) {
+    errors.push(`findings[${idx}].id must match the pattern F-NNN`);
+  }
+  if (typeof f.severity !== "string" || !REVIEW_SEVERITIES.has(f.severity)) {
+    errors.push(`findings[${idx}].severity must be one of ${[...REVIEW_SEVERITIES].join("|")}`);
+  }
+  if (!isBoundedString(f.title, MAX_TITLE_LEN)) {
+    errors.push(`findings[${idx}].title must be 1-${MAX_TITLE_LEN} characters`);
+  }
+  if (typeof f.path !== "string" || f.path.length < 1) {
+    errors.push(`findings[${idx}].path must be a non-empty string`);
+  }
+  if (!(f.line === null || (Number.isInteger(f.line) && f.line >= 1))) {
+    errors.push(`findings[${idx}].line must be a positive integer or null`);
+  }
+  if (!isBoundedString(f.claim, MAX_TEXT_LEN)) {
+    errors.push(`findings[${idx}].claim must be 1-${MAX_TEXT_LEN} characters`);
+  }
+  if (!isBoundedString(f.evidence, MAX_TEXT_LEN)) {
+    errors.push(`findings[${idx}].evidence must be 1-${MAX_TEXT_LEN} characters`);
+  }
+  if (!isBoundedString(f.impact, MAX_TEXT_LEN)) {
+    errors.push(`findings[${idx}].impact must be 1-${MAX_TEXT_LEN} characters`);
+  }
+  if (typeof f.confidence !== "string" || !REVIEW_CONFIDENCES.has(f.confidence)) {
+    errors.push(`findings[${idx}].confidence must be one of ${[...REVIEW_CONFIDENCES].join("|")}`);
+  }
+  if (!isBoundedString(f.minimal_fix, MAX_TEXT_LEN)) {
+    errors.push(`findings[${idx}].minimal_fix must be 1-${MAX_TEXT_LEN} characters`);
+  }
+}
+
+// Validates both shape (types, required/unknown fields, enums, length/count
+// limits) and the semantic rules from the task brief (sequential unique IDs,
+// status/findings/limitations coherence). Hand-written on purpose — no
+// JSON-Schema library is available in this environment.
+function validateReview(obj) {
+  const errors = [];
+  if (!isPlainObject(obj)) return ["review result is not a JSON object"];
+
+  for (const k of Object.keys(obj)) {
+    if (!REVIEW_TOP_FIELDS.includes(k)) errors.push(`unknown top-level field "${k}"`);
+  }
+  for (const k of REVIEW_TOP_FIELDS) {
+    if (!(k in obj)) errors.push(`missing required top-level field "${k}"`);
+  }
+
+  if (typeof obj.status !== "string" || !REVIEW_STATUSES.has(obj.status)) {
+    errors.push(`status must be one of ${[...REVIEW_STATUSES].join("|")}`);
+  }
+  if (!isBoundedString(obj.scope, MAX_TEXT_LEN)) {
+    errors.push(`scope must be 1-${MAX_TEXT_LEN} characters`);
+  }
+
+  let findings = null;
+  if (!Array.isArray(obj.findings)) {
+    errors.push("findings must be an array");
+  } else {
+    findings = obj.findings;
+    if (findings.length > MAX_FINDINGS) {
+      errors.push(`findings has ${findings.length} entries; max ${MAX_FINDINGS}`);
+    }
+    findings.forEach((f, i) => validateFinding(f, i, errors));
+    // Sequential-unique-starting-at-F-001 check. This single positional
+    // comparison catches duplicates, gaps, and out-of-order IDs alike: any
+    // deviation from the expected sequence fails at the first offending index.
+    findings.forEach((f, i) => {
+      const expected = `F-${String(i + 1).padStart(3, "0")}`;
+      const actual = isPlainObject(f) ? f.id : undefined;
+      if (actual !== expected) {
+        errors.push(
+          `findings[${i}].id expected "${expected}" but got "${actual}" — IDs must be sequential and unique, starting at F-001`,
+        );
+      }
+    });
+  }
+
+  let limitations = null;
+  if (!Array.isArray(obj.limitations)) {
+    errors.push("limitations must be an array");
+  } else {
+    limitations = obj.limitations;
+    if (limitations.length > MAX_LIMITATIONS) {
+      errors.push(`limitations has ${limitations.length} entries; max ${MAX_LIMITATIONS}`);
+    }
+    limitations.forEach((l, i) => {
+      if (!isBoundedString(l, MAX_LIMITATION_LEN)) {
+        errors.push(`limitations[${i}] must be 1-${MAX_LIMITATION_LEN} characters`);
+      }
+    });
+  }
+
+  if (findings !== null && typeof obj.status === "string" && REVIEW_STATUSES.has(obj.status)) {
+    if (obj.status === "FINDINGS" && findings.length < 1) {
+      errors.push('status "FINDINGS" requires at least one finding');
+    }
+    if (obj.status === "NO_FINDINGS" && findings.length !== 0) {
+      errors.push('status "NO_FINDINGS" requires zero findings');
+    }
+  }
+  if (limitations !== null && typeof obj.status === "string" && REVIEW_STATUSES.has(obj.status)) {
+    if (obj.status === "INCOMPLETE" && limitations.length < 1) {
+      errors.push('status "INCOMPLETE" requires at least one non-empty limitation explaining what failed or was truncated');
+    }
+  }
+
+  return errors;
+}
+
+// Truncates the middle of a string (keeping start and end) so any single
+// display field has a hard byte ceiling, without ever dropping a finding
+// entry. This is display-only — it never touches the validated data or the
+// on-disk result file.
+function truncateMiddle(s, maxLen) {
+  if (s.length <= maxLen) return s;
+  const keep = Math.max(1, maxLen - 1);
+  const head = Math.ceil(keep * 0.6);
+  const tail = keep - head;
+  return `${s.slice(0, head)}…${tail > 0 ? s.slice(s.length - tail) : ""}`;
+}
+
+function renderReviewIndex(review, resultPath, pathCap, titleCap) {
+  const lines = [];
+  lines.push("=== Codex Review Result ===");
+  lines.push(`Status: ${review.status}`);
+  lines.push(`Scope: ${review.scope}`);
+  lines.push(`Full result: ${resultPath}`);
+  lines.push(`Findings: ${review.findings.length}`);
+  if (review.limitations.length) {
+    lines.push("Limitations:");
+    for (const l of review.limitations) lines.push(`  - ${l}`);
+  } else {
+    lines.push("Limitations: (none)");
+  }
+  lines.push("");
+  if (review.findings.length) {
+    for (const f of review.findings) {
+      const path = truncateMiddle(f.path, pathCap);
+      const title = truncateMiddle(f.title, titleCap);
+      const line = f.line === null ? "null" : f.line;
+      lines.push(`${f.id} ${f.severity}/${f.confidence} ${path}:${line} ${title}`);
+    }
+  } else {
+    lines.push("(no findings)");
+  }
+  return lines.join("\n") + "\n";
+}
+
+// Builds the compact index, shrinking per-finding display fields if needed so
+// the result is provably <= MAX_INDEX_BYTES. Every finding ID is always kept
+// — only the free-text display width shrinks, never an entry is dropped.
+function buildReviewIndex(review, resultPath) {
+  let pathCap = 60;
+  let titleCap = MAX_TITLE_LEN;
+  let index = renderReviewIndex(review, resultPath, pathCap, titleCap);
+  for (let attempt = 0; attempt < 8 && Buffer.byteLength(index, "utf8") > MAX_INDEX_BYTES; attempt++) {
+    pathCap = Math.max(8, Math.floor(pathCap * 0.6));
+    titleCap = Math.max(16, Math.floor(titleCap * 0.7));
+    index = renderReviewIndex(review, resultPath, pathCap, titleCap);
+  }
+  return index;
+}
+
+function runReviewType({ specPath, resultPath }) {
+  if (!existsSync(resultPath)) {
+    console.error(`result-handler: review validation failed — no result file at ${resultPath}. Codex may not have produced output.`);
+    console.error(`Full artifact: ${resultPath}`);
+    process.exit(1);
+  }
+
+  const resultText = readFileSync(resultPath, "utf8");
+  if (!resultText.trim()) {
+    console.error(`result-handler: review validation failed — result file is empty: ${resultPath}`);
+    console.error(`Full artifact: ${resultPath}`);
+    process.exit(1);
+  }
+
+  const parsed = loadStructured(resultText);
+  if (parsed === null) {
+    console.error(`result-handler: review validation failed — result is not valid JSON: ${resultPath}`);
+    console.error(`Full artifact: ${resultPath}`);
+    process.exit(1);
+  }
+
+  const errors = validateReview(parsed);
+  if (errors.length) {
+    console.error(`result-handler: review validation failed for ${resultPath}:`);
+    for (const e of errors) console.error(`  - ${e}`);
+    console.error(`Full artifact: ${resultPath}`);
+    process.exit(1);
+  }
+
+  // The source file was only ever read above — never written. Provenance is
+  // preserved: it stays byte-for-byte unchanged on disk.
+  appendSessionPointer(specPath);
+
+  process.stdout.write(buildReviewIndex(parsed, resultPath));
+  process.exit(0);
+}
 
 function parseArgs(argv) {
   const args = {};
@@ -61,7 +306,7 @@ function main() {
     process.exit(2);
   }
   if (typeof args["type"] !== "string") {
-    console.error("result-handler: missing --type (one of: image, text, code, data)");
+    console.error("result-handler: missing --type (one of: image, text, code, data, review)");
     process.exit(2);
   }
 
@@ -73,6 +318,11 @@ function main() {
 
   const base = basename(specPath).replace(/\.md$/, "");
   const resultPath = join(dirname(specPath), `result-${base}.txt`);
+
+  if (args["type"] === "review") {
+    runReviewType({ specPath, resultPath });
+    return;
+  }
 
   let resultText = "";
   if (existsSync(resultPath)) {

@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Codex Code Review Result",
+  "description": "Provenance-preserving, bounded structured evidence contract for /codex:review. Passed to `codex exec --output-schema`. Ask for the 20 highest-impact actionable findings; use INCOMPLETE rather than silently truncating when more findings are known to exist. Exclude pure style preferences unless they violate a cited project rule.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "scope", "findings", "limitations"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["FINDINGS", "NO_FINDINGS", "INCOMPLETE"],
+      "description": "FINDINGS requires >=1 finding. NO_FINDINGS requires zero findings and means only 'no actionable findings for this declared scope' — not that the code is correct or ready to ship. INCOMPLETE requires a non-empty limitation explaining what failed or was truncated."
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 480,
+      "description": "The exact reviewed scope (e.g. paths, diff range, or question) as declared to Codex — not a restatement of the whole repository."
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "Sequential, unique IDs beginning at F-001 (no gaps, duplicates, or reordering). Empty when status is NO_FINDINGS.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "severity", "title", "path", "line", "claim", "evidence", "impact", "confidence", "minimal_fix"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F-[0-9]{3}$",
+            "description": "Sequential unique identifier starting at F-001."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Repo-relative or absolute path to the affected file."
+          },
+          "line": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "1-based line number, or null when the finding is not line-scoped."
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 480,
+            "description": "The falsifiable claim being made."
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 480,
+            "description": "Concrete evidence for the claim (code, line ranges, reasoning) — not a restatement of the claim."
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 480
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "minimal_fix": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 480,
+            "description": "The smallest concrete change that would resolve the finding."
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 8,
+      "description": "Non-empty when status is INCOMPLETE, explaining what failed or was truncated. May also note review caveats for FINDINGS/NO_FINDINGS.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240
+      }
+    }
+  }
+}
