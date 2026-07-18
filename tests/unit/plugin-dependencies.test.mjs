@@ -31,6 +31,9 @@ test("contexthub declares exactly one unversioned dependency on upstream Superpo
 
 test("contexthub does not depend on the public codex bridge plugin", () => {
   const contexthub = readJson(CONTEXTHUB_MANIFEST_PATH);
+  // Mandated verbatim by the plan. Note it is vacuous against the real
+  // manifest shape: .includes on an array of objects can never match the
+  // bare string "codex". The .some() assertion below is the load-bearing one.
   assert.equal(contexthub.dependencies.includes("codex"), false);
   assert.equal(
     contexthub.dependencies.some((d) => (typeof d === "string" ? d : d.name) === "codex"),
@@ -49,23 +52,28 @@ test("dependencies are declared in the plugin manifest only, never duplicated in
   }
 });
 
-// Task 6 does not add runtime dependency-resolution code -- Claude Code's
-// own plugin installer produces this diagnostic when it cannot resolve
-// contexthub's required "superpowers" dependency from the official
-// marketplace. This fixture is the documented, maintainer-facing text for
-// that failure mode (surfaced in release notes / support guidance); the
-// test pins its wording so a future edit can't quietly regress it into a
-// suggestion to bypass dependency enforcement. The clean-install smoke
-// test (a later, separately-authorized task) exercises the live CLI
-// output against this same contract.
-const MARKETPLACE_UNAVAILABLE_DIAGNOSTIC_FIXTURE =
-  "contexthub requires the \"superpowers\" plugin from the \"claude-plugins-official\" " +
-  "marketplace, but that marketplace could not be reached or is blocked. This is often " +
-  "caused by organization policy restricting marketplace access. Ask your Claude Code " +
-  "administrator to allow \"claude-plugins-official\", or run it from a network/account " +
-  "where that marketplace is reachable. contexthub will not install or activate without " +
-  "this dependency.";
+// ---------------------------------------------------------------------------
+// Dependency-resolution failure contract.
+//
+// Task 6 ships no runtime dependency-resolution code -- Claude Code's own
+// installer emits the real diagnostic when it cannot resolve contexthub's
+// required "superpowers" plugin. What this repo owns is the *policy* that
+// governs how we are allowed to describe that failure, documented in
+// quality-bar.md under "### Dependency-resolution failure contract".
+//
+// These tests read that section from disk so they fail when the policy is
+// deleted or weakened -- they are not self-referential. The later,
+// separately-authorized clean-install smoke test checks live CLI output
+// against the same three properties.
+// ---------------------------------------------------------------------------
 
+const QUALITY_BAR_PATH = path.join(REPO_ROOT, "quality-bar.md");
+const CONTRACT_HEADING = "### Dependency-resolution failure contract";
+const PROHIBITION_MARKER = "never suggest bypassing dependency enforcement";
+
+// Phrases we must never offer as a remedy. They legitimately appear inside
+// the policy's own prohibition list, so the negative assertion below checks
+// the surrounding prose rather than the prohibition block itself.
 const FORBIDDEN_BYPASS_PHRASES = [
   "disable dependency enforcement",
   "bypass",
@@ -76,27 +84,77 @@ const FORBIDDEN_BYPASS_PHRASES = [
   "install anyway",
 ];
 
-test("the blocked/unavailable-marketplace diagnostic names the marketplace by identifier", () => {
+/** Returns the text of the failure-contract subsection, exclusive of its heading. */
+function readFailureContractSection() {
+  const doc = fs.readFileSync(QUALITY_BAR_PATH, "utf8");
+  const start = doc.indexOf(CONTRACT_HEADING);
+  assert.notEqual(
+    start,
+    -1,
+    `quality-bar.md must document the dependency-resolution failure contract under "${CONTRACT_HEADING}"`
+  );
+  const body = doc.slice(start + CONTRACT_HEADING.length);
+  // The section ends at the next heading of any level.
+  const end = body.search(/^#{1,6} /m);
+  return (end === -1 ? body : body.slice(0, end)).trim();
+}
+
+/** Blocks of the section that are NOT the prohibition list. */
+function nonProhibitionBlocks(section) {
+  return section
+    .split(/\n\s*\n/)
+    .filter((block) => !block.toLowerCase().includes(PROHIBITION_MARKER));
+}
+
+test("quality-bar.md documents the dependency-resolution failure contract", () => {
+  const section = readFailureContractSection();
+  assert.ok(section.length > 0, "the failure-contract section must not be empty");
+});
+
+test("the documented failure contract requires naming the official marketplace", () => {
+  const section = readFailureContractSection();
   assert.ok(
-    MARKETPLACE_UNAVAILABLE_DIAGNOSTIC_FIXTURE.includes("claude-plugins-official"),
-    "diagnostic must name the official marketplace"
+    section.includes("claude-plugins-official"),
+    "the failure contract must require diagnostics to name claude-plugins-official"
   );
 });
 
-test("the blocked/unavailable-marketplace diagnostic raises organization policy as a likely cause", () => {
+test("the documented failure contract requires raising organization policy as a cause", () => {
+  const section = readFailureContractSection();
   assert.ok(
-    MARKETPLACE_UNAVAILABLE_DIAGNOSTIC_FIXTURE.toLowerCase().includes("organization policy"),
-    "diagnostic must mention organization policy as a possible cause"
+    section.toLowerCase().includes("organization policy"),
+    "the failure contract must require diagnostics to raise organization policy as a possible cause"
   );
 });
 
-test("the blocked/unavailable-marketplace diagnostic never suggests bypassing dependency enforcement", () => {
-  const lower = MARKETPLACE_UNAVAILABLE_DIAGNOSTIC_FIXTURE.toLowerCase();
+test("the documented failure contract explicitly forbids bypassing dependency enforcement", () => {
+  const section = readFailureContractSection();
+  assert.ok(
+    section.toLowerCase().includes(PROHIBITION_MARKER),
+    `the failure contract must state that we "${PROHIBITION_MARKER}"`
+  );
+  // Every phrase we refuse to recommend must still be named in the
+  // prohibition list, so quietly dropping one from the list fails here.
+  const prohibitionBlock = section
+    .split(/\n\s*\n/)
+    .find((block) => block.toLowerCase().includes(PROHIBITION_MARKER));
   for (const phrase of FORBIDDEN_BYPASS_PHRASES) {
-    assert.equal(
-      lower.includes(phrase),
-      false,
-      `diagnostic must not suggest "${phrase}"`
+    assert.ok(
+      prohibitionBlock.toLowerCase().includes(phrase),
+      `the prohibition list must still name "${phrase}" as something we never suggest`
     );
+  }
+});
+
+test("the failure contract never offers a bypass as a remedy outside its prohibition list", () => {
+  const section = readFailureContractSection();
+  for (const block of nonProhibitionBlocks(section)) {
+    for (const phrase of FORBIDDEN_BYPASS_PHRASES) {
+      assert.equal(
+        block.toLowerCase().includes(phrase),
+        false,
+        `the failure contract must not offer "${phrase}" as a remedy; found in: ${block.slice(0, 120)}`
+      );
+    }
   }
 });

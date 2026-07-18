@@ -160,6 +160,36 @@ bars: manual invocation, verbatim preservation, bounded compression,
 visible separation of voices, and explicit handoff of actionable output
 back into the relevant Superpowers skill.
 
+### Dependency-resolution failure contract
+
+The `superpowers` dependency is hard, not advisory. When Claude Code
+cannot resolve it because the `claude-plugins-official` marketplace is
+unavailable, unreachable, or blocked, every diagnostic we write about
+that failure — in release notes, README troubleshooting, support
+guidance, or any skill that surfaces the condition — must:
+
+1. **Name the marketplace** by its identifier, `claude-plugins-official`,
+   so the reader knows exactly which source failed.
+2. **Raise organization policy** as a possible cause. In managed
+   environments a blocked marketplace is usually an administrative
+   restriction, not a broken install, and the reader should be pointed
+   at their Claude Code administrator.
+3. **Never suggest bypassing dependency enforcement.** Specifically, we
+   do not tell users to disable dependency enforcement, bypass the
+   check, skip validation, pass `--no-verify`, remove the dependency,
+   ignore the failure, or install anyway. `contexthub` without
+   Superpowers is a broken configuration — it would present lifecycle
+   entry points whose methodology is missing. Failing closed with an
+   actionable message is the correct behavior.
+
+The remedy we offer is always to restore access to the marketplace
+(ask the administrator to allow `claude-plugins-official`, or use a
+network/account where it is reachable), never to weaken the dependency.
+
+`tests/unit/plugin-dependencies.test.mjs` reads this subsection from
+disk and asserts properties 1–3 hold, so deleting or weakening it
+fails the suite.
+
 ## Enforcement
 
 `tools/lint-skill.mjs` (to be built) enforces gates 1–3 in CI. Gates
