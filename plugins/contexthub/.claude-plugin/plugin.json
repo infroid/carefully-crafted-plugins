@@ -4,5 +4,8 @@
   "description": "The multi-agent hub for Claude Code: the full software lifecycle (spec, plan, tdd, review, verify, debug, ship), token-efficient task triage, and the four-phase Delphi converge debate. Ties Claude, OpenAI Codex, and Google Antigravity together, degrading gracefully to whichever of the three are installed.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
+  "dependencies": [
+    { "name": "superpowers", "marketplace": "claude-plugins-official" }
+  ],
   "keywords": ["contexthub", "multi-agent", "lifecycle", "triage", "converge", "delphi", "spec", "plan", "tdd", "review", "verify", "debug", "ship", "degradation", "ensemble", "synthesis"]
 }

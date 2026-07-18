@@ -95,8 +95,73 @@ Every skill that returns specialist output must apply
 `reference/critical-evaluation.md` before relaying — sanity-check
 claims, flag disagreements, never silently switch positions.
 
+## 9. Complementarity gate
+
+Superpowers owns software-development methodology. A new Carefully
+Crafted skill is rejected if its primary purpose is any of:
+
+```text
+specification refinement, implementation planning, TDD enforcement,
+systematic debugging, generic code review, completion verification,
+worktree setup, plan execution, or branch finishing
+```
+
+Those are Superpowers' job (`superpowers:brainstorming`,
+`superpowers:writing-plans`, `superpowers:test-driven-development`,
+`superpowers:systematic-debugging`, `superpowers:requesting-code-review`
+/ `superpowers:receiving-code-review`,
+`superpowers:verification-before-completion`,
+`superpowers:using-git-worktrees`, `superpowers:executing-plans`,
+`superpowers:finishing-a-development-branch`). Carefully Crafted does
+not re-implement them, wrap them, or offer a competing path through
+them. This is why `contexthub` declares a hard, unversioned dependency
+on upstream `superpowers` (see `plugins/contexthub/.claude-plugin/plugin.json`)
+rather than duplicating any of that methodology.
+
+A skill is allowed only when its core value is one of:
+
+- **External-provider transport** — moving a request/response across a
+  process boundary to a different AI CLI (Codex, Antigravity) that
+  Claude cannot reach on its own.
+- **Bounded orchestration** — sequencing multiple external calls with
+  hard limits (call count, token budget, timeout) that a human
+  wouldn't want to hand-drive.
+- **Evidence compression** — turning a large or noisy external result
+  (a long review, a 1M-token scan) into a small, lossless, auditable
+  index Claude can act on.
+- **Cross-provider deliberation** — structured multi-agent debate
+  (`contexthub:converge`) where the value is genuinely having more than
+  one model in the room, not methodology.
+
+If a proposed skill's pitch reduces to "do TDD/planning/debugging/review
+but through us," it fails this gate regardless of how it's phrased.
+
+### Exception: `/codex:review`
+
+`/codex:review` is retained despite sitting next to Superpowers' review
+territory, because it is narrowly scoped as transport, not methodology:
+
+- It is a **manual, read-only** transport for an independent Codex
+  audit, invoked only when the user or an active Superpowers workflow
+  explicitly requests a second opinion from Codex.
+- It **preserves the exact Codex result** verbatim and exposes a
+  **bounded, all-finding index** (evidence compression), rather than
+  summarizing or editorializing it away.
+- It keeps **Claude's annotations visibly separate** from Codex's
+  findings — no silent merging of the two voices.
+- It does **not** select review methodology, apply refactors, verify
+  completion, or supersede any Superpowers review skill.
+- Actionable finding IDs it surfaces are handed off to
+  `superpowers:receiving-code-review` for triage and response — the
+  methodology of *what to do* with a finding stays with Superpowers.
+
+Any future skill claiming a similar exception must clear the same five
+bars: manual invocation, verbatim preservation, bounded compression,
+visible separation of voices, and explicit handoff of actionable output
+back into the relevant Superpowers skill.
+
 ## Enforcement
 
 `tools/lint-skill.mjs` (to be built) enforces gates 1–3 in CI. Gates
-4–8 are reviewed manually at PR time. A skill that fails any gate
+4–9 are reviewed manually at PR time. A skill that fails any gate
 doesn't merge.
