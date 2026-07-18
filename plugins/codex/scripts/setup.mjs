@@ -1,161 +1,37 @@
 #!/usr/bin/env node
-// setup.mjs — setup for the Codex bridge.
+// setup.mjs — explicit-only setup for the Codex bridge.
 //
-// Modes:
-//   (no args)   explicit /codex:setup — full verbose scaffold + summary
-//   --ensure    fast path used by skills on first run — silent no-op when
-//               already configured, otherwise a concise one-time scaffold
+// Usage:
+//   node setup.mjs           the only mode — full verbose scaffold + summary
 //
 // - Checks codex --version (non-blocking warn if absent)
 // - Scaffolds docs/carefully-crafted-plugins/{constraints,output-formats,handoffs,output/images}/
-// - Writes starter constraint and output-format .md files (skips existing — never overwrites)
+// - Copies the packaged default constraint/output-format files from
+//   plugins/codex/reference/defaults/ into the project (skips any file that
+//   already exists — never overwrites)
 // - Appends .gitignore entries for handoffs/ and output/
 // - Prints a human-readable summary
 //
-// Exit codes: 0 always (warnings reported as text, never failure).
+// There is no automatic/first-run mode. Skills that need a constraint or
+// output-format file reference the packaged default directly under
+// ${CLAUDE_PLUGIN_ROOT}/reference/defaults/ when no project-local file
+// exists, rather than scaffolding the repo. `--ensure` (the old fast path
+// skills used to call on first run) has been removed — see main() below.
+//
+// Exit codes: 0 on success, 2 for the removed --ensure path.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, appendFileSync, readdirSync, copyFileSync } from "node:fs";
+import { join, relative, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = process.cwd();
 const DOCS_ROOT = join(REPO_ROOT, "docs/carefully-crafted-plugins");
-const STARTER = {
-  "constraints/code-style.md": `# Code Style Constraints
-
-<!-- Document conventions every delegated coding task must follow. Reference
-     this file from handoff specs (Section 3). Codex reads this directly. -->
-
-## Languages and versions
-- (e.g. TypeScript 5.x strict mode, Python 3.12, ...)
-
-## Formatting
-- (e.g. Prettier with project config; 2-space indent; trailing commas required)
-
-## Naming
-- (e.g. kebab-case files, PascalCase types, camelCase variables)
-
-## Imports
-- (e.g. absolute imports from src/; no relative paths beyond one level)
-
-## Comments
-- Default to no comments. Only document WHY when non-obvious.
-
-## Testing
-- (e.g. colocate tests as *.test.ts; one assertion theme per test)
-`,
-  "constraints/design-system.md": `# Design System
-
-<!-- Guidance, not a contract. Describe the visual language so an
-     illustrator (human or model) can make good choices. Be evocative,
-     not prescriptive — leave room for craft. -->
-
-## Brand mood
-- (e.g. "warm, considered, editorial — like a well-made notebook")
-
-## Palette
-- Primary: (e.g. #1A1A1A)
-- Accent: (e.g. #FF6B35)
-- Background: (e.g. #FFFFFF, or cream)
-- Other named colors and when to reach for them
-
-## Typography (for assets that include text)
-- Display: (e.g. a clean grotesque, 600 weight)
-- Body: (e.g. Inter, 400 weight)
-
-## Style adjectives
-- (e.g. crafted, restrained, modern-classic, soft-edged)
-
-## Things to avoid
-- (e.g. photorealism, busy textures, hyper-saturated colors)
-`,
-  "constraints/security.md": `# Security Constraints
-
-<!-- Reference this from any handoff that could touch auth, secrets, or
-     external services. -->
-
-## Secrets
-- Never embed API keys, tokens, or passwords in output.
-- Reference environment variables by name only.
-
-## Network
-- (e.g. no outbound HTTP except to allowed domains)
-- (e.g. respect robots.txt and rate limits in browser tasks)
-
-## Data
-- (e.g. never log PII; redact emails and IPs in any captured output)
-
-## Code execution
-- (e.g. no eval, no shell injection, parameterized queries only)
-`,
-  "output-formats/image-icon-256.md": `# Output Format: 256×256 App Icon
-
-## Dimensions
-- 256 × 256 pixels, square
-- PNG; transparent background unless the spec asks otherwise
-- Saved to the artifact path specified in the handoff spec
-
-## Compositional intent
-- A single legible mark, centered, with safe-area padding
-- Reads at 32×32 (favicon size) — silhouette should be unmistakable
-
-## Style
-- Follow design-system.md
-`,
-  "output-formats/image-hero-1024x768.md": `# Output Format: 1024×768 Hero Image
-
-## Dimensions
-- 1024 × 768 pixels
-- PNG; opaque background appropriate for the page it will sit on
-- Saved to the artifact path specified in the handoff spec
-
-## Compositional intent
-- Subject in one third of the canvas; the opposite side should be quieter
-  and suitable for headline text overlay if the page calls for it
-- Designed to be poster-grade — feels considered, not generic stock
-
-## Style
-- Follow design-system.md
-`,
-  "output-formats/raw-prose.md": `# Output Format: Raw Prose
-
-- Plain markdown text, no surrounding fences
-- Direct and concrete; no marketing language; no emoji unless requested
-- Length set by the task; default short
-`,
-  "output-formats/raw-code.md": `# Output Format: Raw Code
-
-- One or more source files, saved to the artifact paths in the spec
-- Follow constraints/code-style.md
-- File should be drop-in usable in the target codebase
-`,
-  "output-formats/code-review.md": `# Output Format: Code Review
-
-<!-- Used by /codex:review. Tune the sections to your team's review style. -->
-
-## Summary
-- One paragraph: overall assessment and whether the change is safe to ship.
-
-## Findings
-For each finding, in priority order:
-- **Severity**: blocker | major | minor | nit
-- **Location**: file path and line(s)
-- **Issue**: what is wrong and why it matters
-- **Suggested fix**: concrete, minimal
-
-## What looks good
-- Brief — call out genuinely solid choices, not filler.
-
-## Open questions
-- Anything the reviewer could not resolve without more context.
-`,
-};
+const DEFAULTS_ROOT = fileURLToPath(new URL("../reference/defaults/", import.meta.url));
 
 const GITIGNORE_ENTRIES = [
   "docs/carefully-crafted-plugins/handoffs/",
   "docs/carefully-crafted-plugins/output/",
-  "docs/carefully-crafted-plugins/triage/",
-  "docs/carefully-crafted-plugins/lifecycle/",
 ];
 
 function checkCodexInstalled() {
@@ -164,6 +40,22 @@ function checkCodexInstalled() {
   if (probe.status !== 0) return { installed: false, reason: `exit-${probe.status}` };
   const version = (probe.stdout || Buffer.from("")).toString().trim();
   return { installed: true, version };
+}
+
+function listPackagedDefaults() {
+  const results = [];
+  function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        results.push(relative(DEFAULTS_ROOT, full));
+      }
+    }
+  }
+  walk(DEFAULTS_ROOT);
+  return results.sort();
 }
 
 function scaffoldFiles() {
@@ -178,13 +70,15 @@ function scaffoldFiles() {
   ];
   for (const d of dirs) mkdirSync(d, { recursive: true });
 
-  for (const [rel, content] of Object.entries(STARTER)) {
-    const path = join(DOCS_ROOT, rel);
-    if (existsSync(path)) {
-      skipped.push(path);
+  for (const rel of listPackagedDefaults()) {
+    const src = join(DEFAULTS_ROOT, rel);
+    const dest = join(DOCS_ROOT, rel);
+    if (existsSync(dest)) {
+      skipped.push(dest);
     } else {
-      writeFileSync(path, content, "utf8");
-      created.push(path);
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+      created.push(dest);
     }
   }
 
@@ -201,37 +95,6 @@ function updateGitignore() {
   const block = `${prefix}# carefully-crafted-plugins\n${toAppend.join("\n")}\n`;
   appendFileSync(giPath, block, "utf8");
   return { appended: toAppend, path: giPath };
-}
-
-function ensureSetup() {
-  // Idempotent path the structured skills run on first use. scaffoldFiles only
-  // creates missing files, so this also backfills starter files introduced in
-  // a later plugin version (e.g. a new output-format).
-  const firstTime = !existsSync(DOCS_ROOT);
-  const { created } = scaffoldFiles();
-  const gi = updateGitignore();
-
-  if (created.length === 0 && gi.appended.length === 0) {
-    console.log("[codex] bridge already set up — nothing to do.");
-    return;
-  }
-
-  console.log(
-    firstTime
-      ? "[codex] First use of the Codex bridge in this repo — ran a quick one-time setup."
-      : "[codex] Codex bridge: added newly available starter file(s).",
-  );
-  if (created.length) console.log(`[codex] Scaffolded ${created.length} starter file(s) under ${DOCS_ROOT}`);
-  if (gi.appended.length) console.log("[codex] Updated .gitignore.");
-  console.log("[codex] Edit docs/carefully-crafted-plugins/{constraints,output-formats}/*.md anytime to encode your standards.");
-
-  if (firstTime) {
-    const codex = checkCodexInstalled();
-    if (!codex.installed) {
-      console.log("[codex] Note: codex CLI not detected — install it before delegating:");
-      console.log("        npm install -g @openai/codex   (or: brew install codex), then: codex login");
-    }
-  }
 }
 
 function explicitSetup() {
@@ -278,8 +141,11 @@ function explicitSetup() {
 
 function main() {
   if (process.argv.slice(2).includes("--ensure")) {
-    ensureSetup();
-    return;
+    console.error("[codex] --ensure was removed: automatic setup was removed. Skills no longer");
+    console.error("[codex] scaffold this repo on first use. Run /codex:setup explicitly to copy");
+    console.error("[codex] the packaged defaults, or reference them directly under");
+    console.error("[codex] ${CLAUDE_PLUGIN_ROOT}/reference/defaults/ — no repo mutation required.");
+    process.exit(2);
   }
   explicitSetup();
 }

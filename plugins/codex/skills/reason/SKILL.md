@@ -20,28 +20,14 @@ When invoked as `/codex:reason <prompt>`, the user's text arrives as
 Step 1. When this skill auto-triggers from conversation instead, assemble the
 same problem statement from the surrounding context.
 
-## Step 0: Ensure the bridge is set up
-
-Run this first. It is a fast, idempotent no-op once the repo is configured:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
-```
-
-If it reports a first-time setup, tell the user in one plain line — e.g.
-"First use of the Codex bridge here, so I ran a quick one-time setup; starter
-standards files are under `docs/carefully-crafted-plugins/`, customize them
-anytime" — then continue. Do not pause for approval: the scaffold is safe and
-never overwrites existing files.
-
 ## Step 1: Draft sections 1–4 of the handoff spec
 
 - **Task slug**: kebab-case (e.g. `optimize-graph-traversal`).
 - **Role**: `Hard-reasoning solver`.
 - **Task**: full problem statement. Include any prior attempts (yours), known constraints, and edge cases. Be exhaustive — Codex will not have your conversation context.
 - **How**: usually `Delegate, figure it out.` for genuinely hard problems; numbered steps if you want to constrain the approach.
-- **Constraints**: relevant files from `docs/carefully-crafted-plugins/constraints/` (typically `code-style.md` if output is code).
-- **Output format**: e.g. `docs/carefully-crafted-plugins/output-formats/raw-code.md` or `raw-prose.md`.
+- **Constraints**: relevant files from `docs/carefully-crafted-plugins/constraints/` (typically `code-style.md` if output is code). If the project has no such file, use the packaged default at `${CLAUDE_PLUGIN_ROOT}/reference/defaults/constraints/code-style.md` — never scaffold the project file yourself.
+- **Output format**: e.g. `docs/carefully-crafted-plugins/output-formats/raw-code.md` or `raw-prose.md`. If absent, use the packaged default at `${CLAUDE_PLUGIN_ROOT}/reference/defaults/output-formats/raw-code.md` (or `raw-prose.md`).
 - **Artifact path**: `docs/carefully-crafted-plugins/output/<slug>.<ext>`.
 - **Session artifact**: if a superpowers plan/spec exists in this session, reference its absolute path.
 
@@ -49,7 +35,10 @@ never overwrites existing files.
 
 Before invoking scripts:
 
-1. Verify every constraint and output-format file exists on disk.
+1. Verify every constraint and output-format path resolves — either the
+   project-local file or the packaged default under
+   `${CLAUDE_PLUGIN_ROOT}/reference/defaults/` (always present, so this never
+   blocks).
 2. Verify the problem statement is complete: inputs, expected outputs, edge cases, performance requirements, language/framework.
 3. If anything is missing, ask the user one targeted question.
 

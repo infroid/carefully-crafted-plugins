@@ -25,20 +25,6 @@ instead, assemble the same brief from the surrounding context.
   clearly asked Codex to *make* the changes, not just suggest them. Confirm
   this in Step 2 per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`.
 
-## Step 0: Ensure the bridge is set up
-
-Run this first. It is a fast, idempotent no-op once the repo is configured:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
-```
-
-If it reports a first-time setup, tell the user in one plain line — e.g.
-"First use of the Codex bridge here, so I ran a quick one-time setup; starter
-standards files are under `docs/carefully-crafted-plugins/`, customize them
-anytime" — then continue. Do not pause for approval: the scaffold is safe and
-never overwrites existing files.
-
 ## Step 1: Draft sections 1–4 of the handoff spec
 
 - **Task slug**: kebab-case (e.g. `review-auth-module`).
@@ -51,12 +37,20 @@ never overwrites existing files.
   the user wants a specific refactor done a specific way.
 - **Constraints**: relevant files from `docs/carefully-crafted-plugins/constraints/`
   (typically `code-style.md`, and `security.md` for anything auth-related).
-- **Output format**: `docs/carefully-crafted-plugins/output-formats/code-review.md`.
+  If the project has no such file, use the packaged default at
+  `${CLAUDE_PLUGIN_ROOT}/reference/defaults/constraints/code-style.md` (or
+  `security.md`) — never scaffold the project file yourself.
+- **Output format**: `docs/carefully-crafted-plugins/output-formats/code-review.md`,
+  or if absent, the packaged default at
+  `${CLAUDE_PLUGIN_ROOT}/reference/defaults/output-formats/code-review.md`.
 - **Artifact path**: `docs/carefully-crafted-plugins/output/<slug>.md`.
 
 ## Step 2: Pre-flight clarification — MANDATORY
 
-1. Verify every constraint and output-format file exists on disk.
+1. Verify every constraint and output-format path resolves — either the
+   project-local file or the packaged default under
+   `${CLAUDE_PLUGIN_ROOT}/reference/defaults/` (always present, so this never
+   blocks).
 2. Confirm the exact review scope (which files / which diff range).
 3. Confirm **review-only vs. apply** with the user, and therefore the sandbox.
    Treat `workspace-write` as a high-impact choice — see
