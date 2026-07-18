@@ -43,10 +43,17 @@ function setup() {
 }
 
 function run(args, { fakeCodex, recordFile, dir, extraEnv = {} }) {
-  return spawnSync("node", [SCRIPT, ...args], {
+  const env = {
+    ...process.env,
+    CODEX_BIN: fakeCodex,
+    FAKE_CODEX_RECORD: recordFile,
+    ...extraEnv,
+  };
+  if (!("CODEX_SANDBOX" in extraEnv)) delete env.CODEX_SANDBOX;
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
     cwd: dir,
     encoding: "utf8",
-    env: { ...process.env, CODEX_BIN: fakeCodex, FAKE_CODEX_RECORD: recordFile, ...extraEnv },
+    env,
   });
 }
 

@@ -24,7 +24,7 @@ function fakeBinDir(names, { exit = 0, sleepSec = 0 } = {}) {
 test("both agents present and healthy", () => {
   const dir = fakeBinDir(["codex", "agy"]);
   try {
-    assert.deepEqual(detect({ env: { PATH: dir } }),
+    assert.deepEqual(detect({ env: { PATH: dir }, timeoutMs: 5000 }),
       { claude: true, codex: true, agy: true, count: 3, externalCount: 2 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -32,7 +32,7 @@ test("both agents present and healthy", () => {
 test("only codex present", () => {
   const dir = fakeBinDir(["codex"]);
   try {
-    const r = detect({ env: { PATH: dir } });
+    const r = detect({ env: { PATH: dir }, timeoutMs: 5000 });
     assert.equal(r.codex, true); assert.equal(r.agy, false);
     assert.equal(r.count, 2); assert.equal(r.externalCount, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

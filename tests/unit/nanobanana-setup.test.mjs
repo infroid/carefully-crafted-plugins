@@ -150,7 +150,9 @@ test("--wire fails clearly when the server is not built", () => {
 });
 
 test("--install-extension --dry-run prints the gemini command and does not run it", () => {
-  const bins = fakeBinDir(["gemini"]);
+  const bins = tmp("nbset-bin-");
+  const trueBin = fs.existsSync("/usr/bin/true") ? "/usr/bin/true" : "/bin/true";
+  fs.symlinkSync(trueBin, path.join(bins, "gemini"));
   try {
     const res = runCli(["--install-extension", "--dry-run"], { PATH: bins }, REPO_ROOT);
     assert.equal(res.status, 0, res.stderr);
