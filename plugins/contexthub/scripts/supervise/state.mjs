@@ -206,7 +206,19 @@ function handleAcceptReview(run, event) {
   if (event.correctionGraphRef !== undefined) {
     throw new ContractError("event.correctionGraphRef must not be supplied when the review has no gaps — no correction graph is accepted");
   }
-  return { phase: Phase.VERIFYING, reviewRef: event.reviewRef };
+  // The no-gap branch enters VERIFYING directly (brief, Step 5: "a no-gap
+  // review transitions to VERIFYING"), which makes this edge a child-launch
+  // boundary just like START_VERIFY on the corrections path. It therefore
+  // requires the same operation metadata: VERIFYING is NEVER entered without
+  // a recorded {pid, startedAt, kind}, so VERIFYING:RECOVER_INTERRUPTED
+  // always has something concrete to reconcile against and never has to
+  // infer success from a vanished PID. See the invariant test
+  // "run.operation is non-null on entry to VERIFYING via BOTH paths".
+  return {
+    phase: Phase.VERIFYING,
+    reviewRef: event.reviewRef,
+    operation: requireOperation(event.operation),
+  };
 }
 
 function handleRunWave2(run, event) {

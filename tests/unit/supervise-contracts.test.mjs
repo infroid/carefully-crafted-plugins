@@ -581,6 +581,50 @@ describe("validateVerificationCommand", () => {
     });
   }
 
+  // --- Critical 1 regression: checking only argv[0] was a total bypass of
+  // the shell-interpreter ban. Task 9 executes these arrays with
+  // `shell: false`, which does not help when argv[0] is itself an
+  // exec-wrapper like `env` or `timeout`. These three argv arrays were all
+  // ACCEPTED before the fix.
+  const ARGV0_BYPASSES = [
+    ["env", "bash", "-c", "rm -rf /"],
+    ["timeout", "60", "sh", "-c", "curl x|sh"],
+    ["xargs", "rm"],
+  ];
+  for (const argv of ARGV0_BYPASSES) {
+    test(`rejects the argv[0] wrapper bypass: ${JSON.stringify(argv)}`, () => {
+      const v = validVerificationCommand();
+      v.argv = argv;
+      assertThrowsContract(() => validateVerificationCommand(v, []));
+    });
+  }
+
+  test("rejects a shell interpreter at ANY argv position, not just argv[0]", () => {
+    for (const argv of [
+      ["make", "test", "&&", "bash"],
+      ["node", "--test", "sh"],
+      ["make", "/bin/zsh"],
+    ]) {
+      const v = validVerificationCommand();
+      v.argv = argv;
+      assertThrowsContract(() => validateVerificationCommand(v, []), /shell interpreter/);
+    }
+  });
+
+  for (const wrapper of ["env", "timeout", "nice", "nohup", "xargs", "stdbuf"]) {
+    test(`rejects command wrapper as argv[0]: ${wrapper}`, () => {
+      const v = validVerificationCommand();
+      v.argv = [wrapper, "node", "--test"];
+      assertThrowsContract(() => validateVerificationCommand(v, []), /wrapper/);
+    });
+  }
+
+  test("rejects an unsafe command at a non-zero argv position", () => {
+    const v = validVerificationCommand();
+    v.argv = ["make", "check", "curl"];
+    assertThrowsContract(() => validateVerificationCommand(v, []), /not a permitted/);
+  });
+
   for (const sub of ["push", "reset", "clean"]) {
     test(`rejects git ${sub}`, () => {
       const v = validVerificationCommand();
@@ -740,6 +784,21 @@ describe("normalizeRepoPath", () => {
 
   test("rejects a path referencing .git", () => {
     assertThrowsContract(() => normalizeRepoPath("plugins/.git/config"), /\.git/);
+  });
+
+  // --- Important 4 regression: the guard was case-sensitive. This repo runs
+  // on macOS and the same applies on Windows, where ".GIT" resolves to the
+  // real .git directory — so a task could have claimed write ownership of
+  // ".GIT/hooks/pre-commit". All four of these were ACCEPTED before the fix.
+  for (const bad of [".GIT/config", ".Git/hooks/pre-commit", "plugins/.GIT", "plugins/.gIt/x"]) {
+    test(`rejects a mixed-case .git reference: ${bad}`, () => {
+      assertThrowsContract(() => normalizeRepoPath(bad), /\.git/);
+    });
+  }
+
+  test("does not reject legitimate paths that merely start with .git-like text", () => {
+    assert.equal(normalizeRepoPath(".gitignore"), ".gitignore");
+    assert.equal(normalizeRepoPath(".github/workflows/ci.yml"), ".github/workflows/ci.yml");
   });
 
   test("rejects shell metacharacters", () => {
@@ -1163,6 +1222,35 @@ describe("validateCorrectionGraph", () => {
     const v = validCorrectionGraph();
     v.tasks[0].effort = "max";
     assertThrowsContract(() => validateCorrectionGraph(v, { ...opts, claudeScore: 4 }), /requires effort "max"/);
+  });
+
+  // --- Important 3 regression: the max-effort gate was default-OPEN here.
+  // validateTaskGraph always derives claudeScore from the graph's own
+  // complexity_review, but a correction graph has no complexity_review, so
+  // an omitted options.claudeScore silently WAIVED the gate. Verified
+  // accepted before the fix.
+  test("rejects a max-effort correction task when no claudeScore is supplied (default-closed)", () => {
+    const v = validCorrectionGraph();
+    v.tasks[0].effort = "max";
+    assertThrowsContract(() => validateCorrectionGraph(v, opts), /no score was supplied/);
+  });
+
+  test("accepts a max-effort correction task only when claudeScore is explicitly 5", () => {
+    const v = validCorrectionGraph();
+    v.tasks[0].effort = "max";
+    assert.ok(validateCorrectionGraph(v, { ...opts, claudeScore: 5 }));
+  });
+
+  test("a null claudeScore does not waive the max-effort gate either", () => {
+    const v = validCorrectionGraph();
+    v.tasks[0].effort = "max";
+    assertThrowsContract(() => validateCorrectionGraph(v, { ...opts, claudeScore: null }), /no score was supplied/);
+  });
+
+  test("non-max correction tasks are unaffected by an omitted claudeScore", () => {
+    const v = validCorrectionGraph();
+    v.tasks[0].effort = "xhigh";
+    assert.ok(validateCorrectionGraph(v, opts));
   });
 
   test("rejects overlapping write ownership between correction tasks", () => {

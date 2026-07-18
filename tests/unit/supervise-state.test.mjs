@@ -93,7 +93,10 @@ const EVENT_PAYLOAD = {
   DECIDE_APPROVAL: () => ({ id: "approval-01", decision: "APPROVED" }),
   RUN_WAVE_1: () => ({ operation: op("wave-1") }),
   WAVE_1_COMPLETE: () => ({ checkpointRef: "checkpoint-1.json", integrationHead: "a".repeat(40) }),
-  ACCEPT_REVIEW: () => ({ reviewRef: "review.json", hasGaps: false }),
+  // No-gap ACCEPT_REVIEW enters VERIFYING directly, so it is a child-launch
+  // boundary and carries the verification operation (see the both-paths
+  // invariant test below).
+  ACCEPT_REVIEW: () => ({ reviewRef: "review.json", hasGaps: false, operation: op("verify") }),
   RUN_WAVE_2: () => ({ operation: op("wave-2") }),
   WAVE_2_COMPLETE: () => ({ checkpointRef: "checkpoint-2.json" }),
   ACCEPT_FINAL_REVIEW: () => ({ finalReviewRef: "final-review.json", allSatisfied: true }),
@@ -234,13 +237,87 @@ describe("reduceRun — individual transition semantics", () => {
 
   test("a no-gap review transitions to VERIFYING", () => {
     const run = freshRun({ phase: Phase.WAVE_1_COMPLETE });
-    const next = reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false });
+    const next = reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false, operation: op("verify") });
     assert.equal(next.phase, Phase.VERIFYING);
   });
 
   test("a no-gap review rejects a correction graph reference", () => {
     const run = freshRun({ phase: Phase.WAVE_1_COMPLETE });
-    assertThrowsContract(() => reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false, correctionGraphRef: "correction-graph.json" }));
+    assertThrowsContract(() => reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false, correctionGraphRef: "correction-graph.json", operation: op("verify") }));
+  });
+
+  // --- Critical 2 regression: VERIFYING must never be entered without a
+  // recorded operation, on EITHER path. Before this fix the common no-gap
+  // path (clean wave one, no corrections) arrived at VERIFYING with
+  // run.operation === null and no event available to record the
+  // verification child's metadata before spawning it.
+  test("run.operation is non-null on entry to VERIFYING via BOTH paths", () => {
+    // Path A: no-gap review straight from WAVE_1_COMPLETE.
+    const noGap = reduceRun(
+      freshRun({ phase: Phase.WAVE_1_COMPLETE, operation: null }),
+      { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false, operation: op("verify") },
+    );
+    assert.equal(noGap.phase, Phase.VERIFYING);
+    assert.ok(noGap.operation, "no-gap path entered VERIFYING with a null operation");
+    assert.equal(noGap.operation.kind, "verify");
+    assert.ok(Number.isInteger(noGap.operation.pid) && noGap.operation.pid > 0);
+
+    // Path B: corrections path via CORRECTIONS_REVIEWED -> START_VERIFY.
+    const corrected = reduceRun(
+      freshRun({ phase: Phase.CORRECTIONS_REVIEWED, operation: null }),
+      { type: "START_VERIFY", operation: op("verify") },
+    );
+    assert.equal(corrected.phase, Phase.VERIFYING);
+    assert.ok(corrected.operation, "corrections path entered VERIFYING with a null operation");
+    assert.equal(corrected.operation.kind, "verify");
+  });
+
+  test("a no-gap review without operation metadata is rejected (cannot enter VERIFYING blind)", () => {
+    const run = freshRun({ phase: Phase.WAVE_1_COMPLETE });
+    assertThrowsContract(
+      () => reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: false }),
+      /operation/,
+    );
+  });
+
+  test("a gap review does NOT require operation metadata (it enters REVIEWED, not VERIFYING — no child is launched)", () => {
+    const run = freshRun({ phase: Phase.WAVE_1_COMPLETE });
+    const next = reduceRun(run, { type: "ACCEPT_REVIEW", reviewRef: "review.json", hasGaps: true, correctionGraphRef: "correction-graph.json" });
+    assert.equal(next.phase, Phase.REVIEWED);
+  });
+
+  test("every reachable edge into VERIFYING records an operation (exhaustive sweep)", () => {
+    // Structural guarantee, not a spot check: sweep every (phase, event)
+    // pair and assert that any that lands in VERIFYING carries a non-null
+    // operation in the resulting run.
+    let edgesIntoVerifying = 0;
+    for (const phase of ALL_PHASES) {
+      for (const type of ALL_EVENT_TYPES) {
+        const finishChoice = type === "CLEANUP_DISCARD" ? "discard" : "keep";
+        const run = freshRun({
+          phase,
+          operation: null,
+          approvals: phase === Phase.APPROVAL_PENDING ? { "approval-01": "PENDING" } : {},
+          finish: phase === Phase.FINISH_ACTION_PENDING ? { choice: finishChoice, target: null, decidedAt: iso(), attempts: 0 } : null,
+          blockedFrom: phase === Phase.BLOCKED ? Phase.VERIFYING : null,
+          blockEvidence: phase === Phase.BLOCKED ? { bytesHash: "deadbeef", reason: "x", recordedAt: iso() } : null,
+        });
+        let next;
+        try {
+          next = reduceRun(run, { type, ...EVENT_PAYLOAD[type]() });
+        } catch {
+          continue; // illegal edge
+        }
+        if (next.phase !== Phase.VERIFYING) continue;
+        edgesIntoVerifying++;
+        // RECOVER_FROM_BLOCKED restores a phase the run was already in and
+        // deliberately clears the stale operation; the host re-records it
+        // via the recovery flow, so it is exempt from this invariant.
+        if (type === "RECOVER_FROM_BLOCKED") continue;
+        assert.ok(next.operation, `${phase}:${type} entered VERIFYING with a null operation`);
+      }
+    }
+    assert.ok(edgesIntoVerifying >= 3, `expected to observe several edges into VERIFYING, saw ${edgesIntoVerifying}`);
   });
 
   test("a gap review plus a valid correction graph permits exactly one WAVE_2_RUNNING transition", () => {

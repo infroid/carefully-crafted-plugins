@@ -233,8 +233,12 @@ export function normalizeRepoPath(value) {
     if (seg === "..") {
       throw new ContractError(`path must not contain ".." segments: ${describe(value)}`);
     }
-    if (seg === ".git") {
-      throw new ContractError(`path must not reference ".git": ${describe(value)}`);
+    // Case-insensitive on purpose: macOS (this repo's platform) and Windows
+    // both resolve ".GIT" / ".Git" to the real .git directory, so a
+    // case-sensitive check would let a task claim write ownership of
+    // ".GIT/hooks/pre-commit".
+    if (seg.toLowerCase() === ".git") {
+      throw new ContractError(`path must not reference ".git" (in any case): ${describe(value)}`);
     }
     segments.push(seg);
   }
@@ -462,16 +466,30 @@ export function validateApprovalFlag(value) {
 
 const VERIFICATION_COMMAND_FIELDS = ["id", "argv", "cwd", "requires_approval_ids"];
 
-// Shell interpreters are banned as argv[0] outright: a verification command
-// is a direct process invocation, never a string a shell re-interprets.
+// A verification command is a direct process invocation, never a string a
+// shell re-interprets.
+//
+// Critically, checking only argv[0] is NOT sufficient: `["env","bash","-c",
+// "rm -rf /"]` and `["timeout","60","sh","-c","..."]` both put a harmless
+// program at argv[0] and the real interpreter at argv[1..]. Task 9 executes
+// these arrays with `shell: false`, which does not help at all when argv[0]
+// is itself an exec-wrapper. So SHELL_INTERPRETERS is matched against the
+// basename of EVERY token, and the wrappers that can launch an arbitrary
+// program are rejected outright at argv[0].
 const SHELL_INTERPRETERS = new Set([
-  "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
+  "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "ash", "busybox",
   "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+]);
+// Programs whose entire purpose is "run this other program". Permitting one
+// would reopen the interpreter hole via any argument list we do not model.
+const COMMAND_WRAPPERS = new Set([
+  "env", "timeout", "nice", "nohup", "xargs", "stdbuf", "setsid", "ionice",
+  "chroot", "unbuffer", "script", "watch", "time",
 ]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "pip", "pip3", "gem", "cargo", "brew"]);
 const PACKAGE_MUTATION_VERBS = new Set(["install", "uninstall", "add", "remove", "publish", "ci", "update"]);
 const GIT_UNSAFE_SUBCOMMANDS = new Set(["push", "reset", "clean"]);
-const DIRECT_UNSAFE_COMMANDS = new Set(["rm", "sudo", "curl", "wget"]);
+const DIRECT_UNSAFE_COMMANDS = new Set(["rm", "sudo", "curl", "wget", "doas", "su"]);
 
 function basenameOf(p) {
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -479,12 +497,22 @@ function basenameOf(p) {
 }
 
 function assertSafeVerificationArgv(argv, context) {
-  const program = basenameOf(argv[0]).toLowerCase();
-  if (SHELL_INTERPRETERS.has(program)) {
-    throw new ContractError(`${context}: shell interpreters are not permitted as a verification command ("${argv[0]}")`);
+  const basenames = argv.map((a) => basenameOf(a).toLowerCase());
+  const program = basenames[0];
+
+  // Every token, not just argv[0] — see the SHELL_INTERPRETERS comment.
+  const interpreterIdx = basenames.findIndex((b) => SHELL_INTERPRETERS.has(b));
+  if (interpreterIdx >= 0) {
+    throw new ContractError(`${context}: shell interpreters are not permitted anywhere in a verification command (argv[${interpreterIdx}] = "${argv[interpreterIdx]}")`);
   }
-  if (DIRECT_UNSAFE_COMMANDS.has(program)) {
-    throw new ContractError(`${context}: "${program}" is not a permitted verification command`);
+  if (COMMAND_WRAPPERS.has(program)) {
+    throw new ContractError(`${context}: "${program}" is a command wrapper that can launch an arbitrary program and is not permitted as a verification command`);
+  }
+  // Also scanned across every token: these are never legitimate in a
+  // verification command, at any argv position.
+  const unsafeIdx = basenames.findIndex((b) => DIRECT_UNSAFE_COMMANDS.has(b));
+  if (unsafeIdx >= 0) {
+    throw new ContractError(`${context}: "${basenames[unsafeIdx]}" is not a permitted verification command (argv[${unsafeIdx}])`);
   }
   if (program === "git" && argv.some((a) => GIT_UNSAFE_SUBCOMMANDS.has(a))) {
     throw new ContractError(`${context}: unsafe git subcommand in verification command (push|reset|clean are not permitted)`);
@@ -591,12 +619,22 @@ function assertNoOverlappingWrites(tasks, waveLabel) {
   }
 }
 
+// Default-CLOSED: an absent claudeScore does not waive the gate, it fails it.
+// validateTaskGraph always derives the score from the graph's own
+// complexity_review, but a correction graph carries no complexity_review, so
+// its caller must thread options.claudeScore through. If it does not, a
+// "max" task is rejected rather than silently permitted — the expensive,
+// highest-effort tier is never granted by omission.
 function assertMaxEffortRules(tasks, claudeScore, waveLabel) {
   const maxTasks = tasks.filter((t) => t.effort === "max");
   if (maxTasks.length > 1) {
     throw new ContractError(`${waveLabel} contains ${maxTasks.length} tasks at effort "max"; at most one "max" task is permitted per wave`);
   }
-  if (maxTasks.length === 1 && claudeScore !== undefined && claudeScore !== null && claudeScore !== 5) {
+  if (maxTasks.length === 0) return;
+  if (claudeScore === undefined || claudeScore === null) {
+    throw new ContractError(`${waveLabel} task "${maxTasks[0].id}" requires effort "max", which requires Claude's complexity score to be 5, but no score was supplied to validate against (pass options.claudeScore)`);
+  }
+  if (claudeScore !== 5) {
     throw new ContractError(`${waveLabel} task "${maxTasks[0].id}" requires effort "max", which requires Claude's complexity score to be 5 (got ${describe(claudeScore)})`);
   }
 }
