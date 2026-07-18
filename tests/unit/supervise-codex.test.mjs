@@ -1725,6 +1725,104 @@ describe("parsePluginList / inspectSuperpowersSkills", () => {
     }
   });
 
+  // The skill inventory previously leaked its backing array BY REFERENCE as
+  // both requiredSkills and missingSkills (the same object, === true, in two
+  // branches). A caller holding an ordinary return value could set
+  // `.length = 0` and the NEXT inspection would find nothing missing —
+  // reporting ok:true for a plugin directory containing none of the four
+  // required skills. That is the Step 5 inventory check failing OPEN, which
+  // is the worst possible direction for it to fail.
+  test("mutating a returned skills array cannot alter a subsequent call's result", () => {
+    const dir = mkdtempSync(join(tmpdir(), "plugin-fixture-empty-"));
+    try {
+      mkdirSync(join(dir, "skills"), { recursive: true }); // present but EMPTY
+      const entry = { pluginId: "superpowers@openai-curated", installed: true, enabled: true, source: { source: "local", path: dir } };
+
+      const first = inspectSuperpowersSkills(entry);
+      assert.equal(first.ok, false);
+      assert.equal(first.missingSkills.length, 4);
+
+      // Attempt the fail-open attack: empty the arrays we were handed.
+      assert.throws(() => { first.requiredSkills.length = 0; }, TypeError, "requiredSkills must be frozen");
+      first.missingSkills.length = 0; // a per-call copy: mutating it is allowed
+      assert.equal(first.missingSkills.length, 0);
+
+      // The next call must be completely unaffected — still four missing.
+      const second = inspectSuperpowersSkills(entry);
+      assert.equal(second.ok, false, "the inventory gate must not fail open");
+      assert.equal(second.missingSkills.length, 4);
+      assert.deepEqual(second.requiredSkills, [...REQUIRED_SUPERPOWERS_SKILLS].sort());
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  test("pushing a bogus skill name into a returned array cannot pin a permanent failure", () => {
+    const dir = mkdtempSync(join(tmpdir(), "plugin-fixture-"));
+    try {
+      const fixture = healthyPluginFixture(dir);
+      const first = inspectSuperpowersSkills(fixture.installed[0]);
+      assert.equal(first.ok, true);
+
+      assert.throws(() => { first.requiredSkills.push("not-a-real-skill"); }, TypeError);
+      first.missingSkills.push("not-a-real-skill"); // per-call copy
+
+      const second = inspectSuperpowersSkills(fixture.installed[0]);
+      assert.equal(second.ok, true, "a healthy plugin must not be pinned into incomplete-superpowers");
+      assert.deepEqual(second.missingSkills, []);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  test("requiredSkills and missingSkills are never the same object", () => {
+    // Aliasing them is a trap regardless of freezing: they mean different
+    // things, and a caller mutating one must never affect the other.
+    const cases = [
+      inspectSuperpowersSkills(null),
+      inspectSuperpowersSkills({ source: { source: "registry", path: "x" } }),
+      inspectSuperpowersSkills({ source: { source: "local", path: "/nonexistent-plugin-dir-xyz" } }),
+    ];
+    for (const result of cases) {
+      assert.notEqual(result.requiredSkills, result.missingSkills, "requiredSkills and missingSkills must not share an instance");
+      // ...even though their contents legitimately coincide here.
+      assert.deepEqual([...result.requiredSkills].sort(), [...result.missingSkills].sort());
+    }
+  });
+
+  test("each call returns its own missingSkills array", () => {
+    const a = inspectSuperpowersSkills(null);
+    const b = inspectSuperpowersSkills(null);
+    assert.notEqual(a.missingSkills, b.missingSkills, "per-call copies, not a shared instance");
+    assert.deepEqual(a.missingSkills, b.missingSkills);
+  });
+
+  test("checkCodexPrerequisites evidence cannot be mutated to widen the inventory policy", async () => {
+    const ctx = setupFakeCodex();
+    const pluginDir = mkdtempSync(join(tmpdir(), "plugin-fixture-"));
+    try {
+      mkdirSync(join(pluginDir, "skills"), { recursive: true }); // EMPTY
+      const fixture = {
+        installed: [{
+          pluginId: "superpowers@openai-curated", name: "superpowers", version: "1.0.0",
+          installed: true, enabled: true, source: { source: "local", path: pluginDir },
+        }],
+      };
+      const env = { ...process.env, FAKE_CODEX_PLUGIN_JSON: JSON.stringify(fixture), FAKE_CODEX_RECORD: ctx.recordFile };
+
+      const first = await checkCodexPrerequisites({ codexBin: ctx.fakeCodex, env });
+      assert.equal(first.failureCategory, "incomplete-superpowers");
+      assert.throws(() => { first.requiredSkills.length = 0; }, TypeError);
+
+      const second = await checkCodexPrerequisites({ codexBin: ctx.fakeCodex, env });
+      assert.equal(second.failureCategory, "incomplete-superpowers", "must not fail open after a mutation attempt");
+      assert.equal(second.ok, false);
+    } finally {
+      cleanup(ctx.dir);
+      cleanup(pluginDir);
+    }
+  });
+
   test("does not assume enabled installation proves the inventory (empty skills dir with installed+enabled true)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "plugin-fixture-empty-"));
     try {
@@ -1994,6 +2092,31 @@ describe("checkCodexPrerequisites", () => {
 // --------------------------------------------------------------------------
 // Module hygiene: this file must not import the public codex-invoke.mjs.
 // --------------------------------------------------------------------------
+
+// Regression guard for the round-3 finding: the stale-output fix once used
+// `rmSync(outputPath, { force: true, recursive: true })`, which gave this
+// transport `rm -rf` over any absolute path a caller passed. The behavioural
+// tests above prove a directory at outputPath is rejected and left intact,
+// but they would not catch someone re-adding the recursive flag to a
+// different call site in a future edit. This pins the destructive surface of
+// the whole module to exactly one non-recursive unlink.
+test("codex.mjs never performs a recursive delete, and has exactly one non-recursive rmSync", () => {
+  const source = readFileSync(MODULE_PATH, "utf8");
+  // Strip comment lines: the module legitimately DOCUMENTS the removed
+  // recursive call in prose explaining why it is gone.
+  const code = source.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+
+  assert.ok(!/recursive:\s*true/.test(code), "no recursive: true may appear in executable code");
+
+  const rmCalls = [...code.matchAll(/\brmSync\s*\([^)]*\)/g)].map((match) => match[0]);
+  assert.equal(rmCalls.length, 1, `expected exactly one rmSync call site, found ${rmCalls.length}: ${rmCalls.join(" | ")}`);
+  assert.ok(!/recursive/.test(rmCalls[0]), `the surviving rmSync must not be recursive: ${rmCalls[0]}`);
+
+  // And no other destructive fs API is reachable from this module at all.
+  for (const api of ["rmdirSync", "unlinkSync", "truncateSync", "renameSync"]) {
+    assert.ok(!code.includes(api), `codex.mjs must not call ${api}`);
+  }
+});
 
 test("codex.mjs source never imports the public plugins/codex/scripts/codex-invoke.mjs sibling", () => {
   const source = readFileSync(MODULE_PATH, "utf8");

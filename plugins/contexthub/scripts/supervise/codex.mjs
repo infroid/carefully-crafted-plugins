@@ -774,11 +774,33 @@ export const REQUIRED_SUPERPOWERS_SKILLS = Object.freeze([
   "receiving-code-review",
 ]);
 
-const SORTED_REQUIRED_SKILLS = [...REQUIRED_SUPERPOWERS_SKILLS].sort();
+// Frozen, like REQUIRED_SUPERPOWERS_SKILLS itself. Freezing only the export
+// was not enough: THIS is the array that actually escapes through the API, as
+// `requiredSkills`/`missingSkills` on every return value. Unfrozen, a caller
+// holding an ordinary return value could `.length = 0` it and the next
+// inspection would find nothing missing — reporting `ok: true` for a plugin
+// directory containing NONE of the four required skills, i.e. the Step 5
+// inventory check silently failing OPEN. (Pushing a bogus name instead pinned
+// `incomplete-superpowers` forever: fail-closed, but equally broken.)
+//
+// Same bug class as the exported mutable allowlists, but leaking by
+// *reference* rather than by *export* — so the rule at the top of this file
+// has to hold for derived data that escapes, not just for the exports.
+const SORTED_REQUIRED_SKILLS = Object.freeze([...REQUIRED_SUPERPOWERS_SKILLS].sort());
+
+// `requiredSkills` and `missingSkills` mean different things, so they never
+// share an instance even when their contents coincide (aliasing them was a
+// trap for any caller that mutated one and expected the other to be
+// unaffected). `missingSkills` is a fresh per-call array: a caller may
+// reasonably treat a computed result as its own to sort, splice, or drain.
+// `requiredSkills` is the frozen constant — it is policy, not a result.
+function allSkillsMissing() {
+  return [...SORTED_REQUIRED_SKILLS];
+}
 
 export function inspectSuperpowersSkills(pluginEntry) {
   if (!pluginEntry || typeof pluginEntry !== "object") {
-    return { ok: false, reason: "no-entry", missingSkills: SORTED_REQUIRED_SKILLS, sourcePath: null, requiredSkills: SORTED_REQUIRED_SKILLS };
+    return { ok: false, reason: "no-entry", missingSkills: allSkillsMissing(), sourcePath: null, requiredSkills: SORTED_REQUIRED_SKILLS };
   }
   const source = pluginEntry.source;
   // The path must be ABSOLUTE, not merely non-empty. A relative path would
@@ -795,7 +817,7 @@ export function inspectSuperpowersSkills(pluginEntry) {
     return {
       ok: false,
       reason: "non-local-or-missing-source",
-      missingSkills: SORTED_REQUIRED_SKILLS,
+      missingSkills: allSkillsMissing(),
       sourcePath: source && typeof source.path === "string" ? source.path : null,
       requiredSkills: SORTED_REQUIRED_SKILLS,
     };
