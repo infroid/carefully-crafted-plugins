@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
   mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync, mkdirSync, realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,8 @@ import { fileURLToPath } from "node:url";
 import {
   SUPPORTED_EFFORTS,
   SUPPORTED_MODELS,
+  isSupportedEffort,
+  isSupportedModel,
   RETRYABLE_CATEGORIES,
   isRetryable,
   CodexTransportError,
@@ -344,7 +347,7 @@ describe("forbidden values can never be constructed", () => {
   });
 
   test("SUPPORTED_EFFORTS excludes 'ultra' and any other unofficial value", () => {
-    assert.ok(!SUPPORTED_EFFORTS.has("ultra"));
+    assert.ok(!isSupportedEffort("ultra"));
     assert.deepEqual([...SUPPORTED_EFFORTS].sort(), ["high", "low", "max", "medium", "none", "xhigh"]);
   });
 
@@ -1202,6 +1205,36 @@ describe("thread ID validation — --last injection and silent new-thread starts
     }
   });
 
+  // With the `i` flag an uppercase UUID passed the gate, then failed the
+  // post-run identity check's strict comparison against the CLI's lowercase
+  // thread.started ID — failing closed, but only after spawning, executing
+  // and spending. Rejecting pre-spawn detects it for free.
+  test("an uppercase UUID is rejected pre-spawn rather than failing after the run has been billed", () => {
+    const upper = RESUME_UUID.toUpperCase();
+    assert.throws(
+      () => buildResumeCodexArgs({ threadId: upper, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high" }),
+      (err) => err instanceof CodexTransportError && /must be a lowercase UUID/.test(err.message),
+    );
+    // Mixed case too.
+    const mixed = RESUME_UUID.slice(0, 8).toUpperCase() + RESUME_UUID.slice(8);
+    assert.throws(() => buildResumeCodexArgs({ threadId: mixed, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high" }), CodexTransportError);
+    // And the canonical lowercase form still works.
+    assert.doesNotThrow(() => buildResumeCodexArgs({ threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high" }));
+  });
+
+  test("an uppercase UUID is rejected pre-spawn by runCodex (fake never invoked)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      await assert.rejects(
+        () => runCodex(freshWorkerArgs(ctx, { resumeThreadId: RESUME_UUID.toUpperCase() })),
+        (err) => err instanceof CodexTransportError && /lowercase UUID/.test(err.message),
+      );
+      assert.equal(existsSync(ctx.recordFile), false, "must fail before spending anything");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
   test("a well-formed UUID is accepted and lands as the second-to-last positional", () => {
     const argv = buildResumeCodexArgs({ threadId: RESUME_UUID, prompt: "PROMPT", schemaPath: "/s", outputPath: "/o", effort: "high" });
     assert.equal(argv[argv.length - 2], RESUME_UUID);
@@ -1357,19 +1390,50 @@ describe("missing-output — success is never reported for a file that was never
     }
   });
 
-  test("a directory sitting at outputPath is not accepted as output", async () => {
+  // A directory at outputPath must be REJECTED and LEFT INTACT. An earlier
+  // version of the stale-output fix cleared the path with
+  // `rmSync(..., { recursive: true })`, which gave this transport `rm -rf`
+  // over any absolute path a caller passed: pointing outputPath at a
+  // populated directory silently destroyed the entire tree. This module has
+  // no business holding that capability — before that change it only ever
+  // *wrote* to outputPath.
+  test("a directory at outputPath is rejected pre-spawn and its contents are left completely intact", async () => {
     const ctx = setupFakeCodex();
     try {
       const outputPath = join(ctx.dir, "output.json");
-      mkdirSync(outputPath, { recursive: true });
-      const actions = [
-        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t1" }) },
-        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
-        { type: "exit", code: 0 },
-      ];
-      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
-      assert.equal(result.failureCategory, "missing-output");
-      assert.equal(result.finalOutputPath, null);
+      mkdirSync(join(outputPath, "nested"), { recursive: true });
+      writeFileSync(join(outputPath, "top.txt"), "precious top-level data", "utf8");
+      writeFileSync(join(outputPath, "nested", "user-data.txt"), "precious nested data", "utf8");
+
+      await assert.rejects(
+        () => runCodex(freshWorkerArgs(ctx)),
+        (err) => err instanceof CodexTransportError && /not a regular file/.test(err.message),
+      );
+
+      // Nothing was deleted, at any depth.
+      assert.ok(existsSync(outputPath), "the directory itself must survive");
+      assert.equal(readFileSync(join(outputPath, "top.txt"), "utf8"), "precious top-level data");
+      assert.equal(readFileSync(join(outputPath, "nested", "user-data.txt"), "utf8"), "precious nested data");
+      // And no child process was ever launched.
+      assert.equal(existsSync(ctx.recordFile), false, "rejection must happen pre-spawn");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a non-file, non-directory artifact at outputPath is also rejected rather than removed", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      // A symlink to a directory: statSync follows it, so this must be
+      // rejected as "not a regular file" — and the target must survive.
+      const realDir = join(ctx.dir, "real-dir");
+      mkdirSync(realDir, { recursive: true });
+      writeFileSync(join(realDir, "keep.txt"), "keep me", "utf8");
+      const outputPath = join(ctx.dir, "output.json");
+      symlinkSync(realDir, outputPath);
+
+      await assert.rejects(() => runCodex(freshWorkerArgs(ctx)), CodexTransportError);
+      assert.equal(readFileSync(join(realDir, "keep.txt"), "utf8"), "keep me");
     } finally {
       cleanup(ctx.dir);
     }
@@ -1387,6 +1451,65 @@ describe("missing-output — success is never reported for a file that was never
     } finally {
       cleanup(ctx.dir);
     }
+  });
+});
+
+describe("exported allowlists are immutable, so the gates cannot be widened at runtime", () => {
+  // An exported `new Set([...])` is a mutable global: any module in the
+  // process can .add() a forbidden value and every gate built on it silently
+  // changes policy. SUPPORTED_MODELS.add("gpt-3.5-turbo") previously defeated
+  // the model gate outright, and .delete("gpt-5.6-sol") made the DEFAULT
+  // model rejected, breaking every call.
+  test("SUPPORTED_MODELS mutation attempts throw and the gate still holds afterwards", () => {
+    assert.ok(Array.isArray(SUPPORTED_MODELS));
+    assert.ok(Object.isFrozen(SUPPORTED_MODELS));
+    assert.throws(() => { SUPPORTED_MODELS.push("gpt-3.5-turbo"); }, TypeError);
+    assert.throws(() => { SUPPORTED_MODELS[0] = "gpt-3.5-turbo"; }, TypeError);
+    assert.throws(() => { SUPPORTED_MODELS.length = 0; }, TypeError);
+
+    // The gate is unchanged after every attempt: the widened model is still
+    // rejected, and the default model is still accepted.
+    assert.equal(isSupportedModel("gpt-3.5-turbo"), false);
+    assert.equal(isSupportedModel("gpt-5.6-sol"), true);
+    assert.throws(() => buildFreshCodexArgs({
+      cwd: "/w", prompt: "p", schemaPath: "/s", outputPath: "/o",
+      effort: "high", sandbox: "workspace-write", model: "gpt-3.5-turbo",
+    }), CodexTransportError);
+    assert.throws(() => buildResumeCodexArgs({
+      threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o",
+      effort: "high", model: "gpt-3.5-turbo",
+    }), CodexTransportError);
+    assert.doesNotThrow(() => buildFreshCodexArgs({
+      cwd: "/w", prompt: "p", schemaPath: "/s", outputPath: "/o",
+      effort: "high", sandbox: "workspace-write",
+    }));
+  });
+
+  test("SUPPORTED_EFFORTS mutation attempts throw and 'ultra' still cannot reach argv", () => {
+    assert.ok(Array.isArray(SUPPORTED_EFFORTS));
+    assert.ok(Object.isFrozen(SUPPORTED_EFFORTS));
+    assert.throws(() => { SUPPORTED_EFFORTS.push("ultra"); }, TypeError);
+    assert.throws(() => { SUPPORTED_EFFORTS[0] = "ultra"; }, TypeError);
+    assert.throws(() => { SUPPORTED_EFFORTS.length = 0; }, TypeError);
+
+    assert.equal(isSupportedEffort("ultra"), false);
+    for (const sandbox of ["read-only", "workspace-write"]) {
+      assert.throws(() => buildFreshCodexArgs({
+        cwd: "/w", prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "ultra", sandbox,
+      }), CodexTransportError);
+    }
+    assert.throws(() => buildResumeCodexArgs({
+      threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "ultra",
+    }), CodexTransportError);
+  });
+
+  test("mutating a Set reconstructed from either allowlist cannot widen the real policy", () => {
+    const models = new Set(SUPPORTED_MODELS);
+    models.add("gpt-3.5-turbo");
+    const efforts = new Set(SUPPORTED_EFFORTS);
+    efforts.add("ultra");
+    assert.equal(isSupportedModel("gpt-3.5-turbo"), false);
+    assert.equal(isSupportedEffort("ultra"), false);
   });
 });
 

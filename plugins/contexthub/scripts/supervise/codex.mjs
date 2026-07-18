@@ -61,9 +61,28 @@ export class CodexTransportError extends Error {
 // Efforts, sandboxes, models
 // --------------------------------------------------------------------------
 
-// The full, official reasoning-effort vocabulary. Anything outside this set
+// ALL EXPORTED ALLOWLISTS ARE FROZEN ARRAYS BEHIND PREDICATES.
+//
+// An exported `new Set([...])` is a mutable global: any module in the process
+// can `.add()` a forbidden value or `.delete()` a required one, and every gate
+// built on that Set silently changes policy at runtime. This is the same
+// defect that made the old `Object.freeze(new Set(...))` retry policy a false
+// assurance, and it applied here too — `SUPPORTED_MODELS.add("gpt-3.5-turbo")`
+// fully defeated the model gate, and `.delete("gpt-5.6-sol")` made the default
+// model rejected, breaking every call.
+//
+// So: the exported value is a genuinely frozen array (mutation throws), the
+// Set is internal and never exported, and membership is queried only through
+// the exported predicate. REQUIRED_SUPERPOWERS_SKILLS already followed this
+// shape, so the whole file is now consistent.
+
+// The full, official reasoning-effort vocabulary. Anything outside this list
 // is rejected before argv is ever built (see fact #1 above).
-export const SUPPORTED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
+export const SUPPORTED_EFFORTS = Object.freeze(["none", "low", "medium", "high", "xhigh", "max"]);
+const SUPPORTED_EFFORT_SET = new Set(SUPPORTED_EFFORTS);
+export function isSupportedEffort(effort) {
+  return SUPPORTED_EFFORT_SET.has(effort);
+}
 
 const DEFAULT_MODEL = "gpt-5.6-sol";
 
@@ -73,7 +92,11 @@ const DEFAULT_MODEL = "gpt-5.6-sol";
 // while effort remained rigorously validated — an asymmetry that silently
 // defeats the model-pinning acceptance criteria. Add a model here only
 // when it is a deliberate, reviewed supervisor-tier choice.
-export const SUPPORTED_MODELS = new Set(["gpt-5.6-sol"]);
+export const SUPPORTED_MODELS = Object.freeze(["gpt-5.6-sol"]);
+const SUPPORTED_MODEL_SET = new Set(SUPPORTED_MODELS);
+export function isSupportedModel(model) {
+  return SUPPORTED_MODEL_SET.has(model);
+}
 
 // Verbosity is fixed, never caller-selectable: every argv shape in the brief
 // carries exactly `-c model_verbosity=low`.
@@ -117,9 +140,9 @@ export function isRetryable(category) {
 
 function requireSupportedModel(model, name) {
   requireNonEmptyString(model, name);
-  if (!SUPPORTED_MODELS.has(model)) {
+  if (!isSupportedModel(model)) {
     throw new CodexTransportError(
-      `${name} must be one of ${[...SUPPORTED_MODELS].join("|")}, got ${JSON.stringify(model)} — the supervisor never routes a call to an unreviewed model`,
+      `${name} must be one of ${SUPPORTED_MODELS.join("|")}, got ${JSON.stringify(model)} — the supervisor never routes a call to an unreviewed model`,
     );
   }
   return model;
@@ -165,8 +188,8 @@ function assertSandboxEffort(sandbox, effort) {
       `unsupported sandbox ${JSON.stringify(sandbox)} — only ${[...SANDBOX_EFFORT_POLICY.keys()].join(", ")} are ever constructed by this transport ("danger-full-access" is never a permitted value)`,
     );
   }
-  if (!SUPPORTED_EFFORTS.has(effort)) {
-    throw new CodexTransportError(`unsupported effort ${JSON.stringify(effort)} — must be one of ${[...SUPPORTED_EFFORTS].join("|")}`);
+  if (!isSupportedEffort(effort)) {
+    throw new CodexTransportError(`unsupported effort ${JSON.stringify(effort)} — must be one of ${SUPPORTED_EFFORTS.join("|")}`);
   }
   if (!allowed.has(effort)) {
     throw new CodexTransportError(
@@ -252,13 +275,25 @@ export function buildFreshCodexArgs(options) {
 // brief's own fixture IDs are UUIDs
 // (0199a213-81c0-7800-8aa1-bbab2a035a53), and every thread_id observed from
 // a live `thread.started` event is a UUID.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Deliberately NOT case-insensitive. With the `i` flag an uppercase UUID
+// passed this gate, then failed the post-run identity check's strict string
+// comparison against the CLI's lowercase `thread.started` ID — i.e. it failed
+// closed, but only AFTER spawning, executing, and spending. Requiring the
+// canonical lowercase form detects the same problem for free, before any
+// child process exists. (Normalizing both sides instead would also work, but
+// rejecting keeps exactly one canonical representation of a thread ID moving
+// through the system, which is what makes the identity comparison a simple,
+// auditable string equality.)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function requireThreadId(v, name) {
   requireNonEmptyString(v, name);
   if (!UUID_RE.test(v)) {
+    const looksUppercase = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
     throw new CodexTransportError(
-      `${name} must be a UUID, got ${JSON.stringify(v)}. A non-UUID session id is treated by the Codex CLI as a thread *name*, and an unmatched name silently starts a brand-new thread instead of erroring; a flag-shaped value such as "--last" would be consumed as a flag and resume the most recent session in the cwd.`,
+      looksUppercase
+        ? `${name} must be a lowercase UUID, got ${JSON.stringify(v)}. Codex reports thread IDs in lowercase, and the post-run thread-identity check compares them exactly, so a non-canonical ID would fail only after the run had already executed and been billed.`
+        : `${name} must be a UUID, got ${JSON.stringify(v)}. A non-UUID session id is treated by the Codex CLI as a thread *name*, and an unmatched name silently starts a brand-new thread instead of erroring; a flag-shaped value such as "--last" would be consumed as a flag and resume the most recent session in the cwd.`,
     );
   }
   return v;
@@ -284,7 +319,7 @@ export function buildResumeCodexArgs(options) {
   // worker, so the same high|xhigh|max policy applies — and the sandbox it
   // is pinned to below is exactly that worker sandbox.
   const workerEfforts = SANDBOX_EFFORT_POLICY.get(WORKER_SANDBOX);
-  if (!SUPPORTED_EFFORTS.has(effort) || !workerEfforts.has(effort)) {
+  if (!isSupportedEffort(effort) || !workerEfforts.has(effort)) {
     throw new CodexTransportError(`resume effort must be one of ${[...workerEfforts].join("|")}, got ${JSON.stringify(effort)}`);
   }
 
@@ -511,13 +546,35 @@ export async function runCodex(options) {
   // be reported as a success with the PREVIOUS attempt's content presented as
   // this run's output. The brief explicitly contemplates retries and
   // corrections against the same worktree, so this is reachable, not
-  // theoretical. Remove any pre-existing artifact (including a directory
-  // sitting at that path, which also satisfied existsSync) before spawning,
-  // so the post-run check can only ever pass on a file THIS run created.
+  // theoretical.
+  //
+  // REJECT, DO NOT RECURSIVELY DELETE. An earlier version of this cleared the
+  // path with `rmSync(outputPath, { force: true, recursive: true })`, which
+  // handed this module `rm -rf` over ANY absolute path a caller passed —
+  // pointing outputPath at a populated directory silently destroyed the whole
+  // tree. In a module whose entire job is guarding a worktree with real work
+  // in it, that converts a caller bug into irreversible data loss, and it is
+  // capability this transport has no business holding: before that change it
+  // only ever *wrote* to outputPath.
+  //
+  // Unlinking a single regular file is all the stale-output fix actually
+  // needs. Anything that is not a regular file is rejected outright and left
+  // untouched — which closes the original finding just as completely, since a
+  // directory at that path still fails the run.
   try {
-    rmSync(outputPath, { force: true, recursive: true });
+    const st = statSync(outputPath);
+    if (!st.isFile()) {
+      throw new CodexTransportError(
+        `options.outputPath (${outputPath}) exists and is not a regular file — refusing to run. This transport never deletes a directory; remove it yourself if it is not wanted.`,
+      );
+    }
+    rmSync(outputPath, { force: true });
   } catch (err) {
-    throw new CodexTransportError(`could not clear a pre-existing artifact at options.outputPath (${outputPath}): ${err.message}`);
+    // ENOENT is the normal case: nothing there to clear.
+    if (err instanceof CodexTransportError) throw err;
+    if (err.code !== "ENOENT") {
+      throw new CodexTransportError(`could not inspect options.outputPath (${outputPath}): ${err.message}`);
+    }
   }
   const spawnedAtMs = Date.now();
 
