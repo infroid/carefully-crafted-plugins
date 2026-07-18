@@ -47,7 +47,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { statSync, writeFileSync, existsSync } from "node:fs";
+import { statSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 export class CodexTransportError extends Error {
@@ -91,8 +91,29 @@ const WORKER_SANDBOX = "workspace-write";
 // safety-relevant policy that Task 9's scheduler must consume as a shared
 // symbol, not re-derive from prose. "auth", "malformed-jsonl",
 // "missing-output", "missing-thread-started", "missing-turn-completed",
-// "timeout", and "nonzero-exit" are all deliberately absent.
-export const RETRYABLE_CATEGORIES = Object.freeze(new Set(["rate-limited", "transport"]));
+// "thread-identity-mismatch", "timeout", and "nonzero-exit" are all
+// deliberately absent.
+//
+// NOTE ON IMMUTABILITY. This was previously `Object.freeze(new Set([...]))`,
+// which is a *false* assurance: Object.freeze freezes own properties, not a
+// Set's internal slots, so `.add("timeout")` and `.delete("rate-limited")`
+// both still succeeded while `Object.isFrozen` reported true. That is worse
+// than no protection at all, because "timeout" is precisely the
+// mutation-ambiguous category this set exists to exclude — any module in the
+// process could have silently widened the retry policy at runtime.
+//
+// A genuinely frozen array is the source of truth, and `isRetryable` is the
+// only supported way to query it. The Set is internal and never exported.
+export const RETRYABLE_CATEGORIES = Object.freeze(["rate-limited", "transport"]);
+
+const RETRYABLE_CATEGORY_SET = new Set(RETRYABLE_CATEGORIES);
+
+// The ONLY supported membership test. Callers must not reconstruct a Set from
+// RETRYABLE_CATEGORIES and mutate that instead — but even if they do, the
+// policy this predicate reports is unaffected.
+export function isRetryable(category) {
+  return RETRYABLE_CATEGORY_SET.has(category);
+}
 
 function requireSupportedModel(model, name) {
   requireNonEmptyString(model, name);
@@ -210,16 +231,51 @@ export function buildFreshCodexArgs(options) {
   ];
 }
 
+// THREAD ID VALIDATION. `threadId` becomes a bare positional at the end of
+// the resume argv, so clap parses anything flag-shaped AS a flag. A bare
+// `requireNonEmptyString` was therefore not merely lax, it was injectable:
+// `buildResumeCodexArgs({threadId: "--last"})` produced an argv in which the
+// real CLI consumed `--last` as the flag and resumed THE MOST RECENT SESSION
+// IN THE CWD — exactly what the plan forbids ("Never use `resume --last`
+// inside supervision"). The old "no --last" comment held only for
+// well-formed IDs, which was precisely the assumption an attacker-or-bug
+// controlling threadId would violate.
+//
+// Compounding it, the real CLI treats a non-UUID SESSION_ID as a thread
+// *name*, and a name matching nothing SILENTLY STARTS A BRAND-NEW THREAD
+// rather than erroring. So `"task-a-correction"` would not fail loudly — it
+// would quietly produce a fresh, unrelated thread while the supervisor
+// believed it had resumed. Only UUID-shaped-but-missing IDs error properly.
+//
+// Requiring a UUID closes both: flag-shaped values, path-ish values,
+// whitespace, and name-like values are all rejected before argv exists. The
+// brief's own fixture IDs are UUIDs
+// (0199a213-81c0-7800-8aa1-bbab2a035a53), and every thread_id observed from
+// a live `thread.started` event is a UUID.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireThreadId(v, name) {
+  requireNonEmptyString(v, name);
+  if (!UUID_RE.test(v)) {
+    throw new CodexTransportError(
+      `${name} must be a UUID, got ${JSON.stringify(v)}. A non-UUID session id is treated by the Codex CLI as a thread *name*, and an unmatched name silently starts a brand-new thread instead of erroring; a flag-shaped value such as "--last" would be consumed as a flag and resume the most recent session in the cwd.`,
+    );
+  }
+  return v;
+}
+
 // Resume: `exec resume --json -m <model> -c model_reasoning_effort=<effort>
 // -c model_verbosity=low -c sandbox_mode=workspace-write
 // --output-schema <schemaPath> --output-last-message <outputPath>
 // <threadId> <prompt>`. No -C, no --sandbox, no --last: resume is always the
 // exact thread, confined by the caller setting the CHILD PROCESS's cwd (not
 // an argv flag) to the original absolute worktree — see runCodex() — AND by
-// the explicit sandbox_mode pin (see the SANDBOX PINNING note above).
+// the explicit sandbox_mode pin (see the SANDBOX PINNING note above) — AND
+// by the UUID requirement on threadId (see above), which is what makes the
+// "no --last" guarantee actually hold.
 export function buildResumeCodexArgs(options) {
   const { threadId, prompt, schemaPath, outputPath, model = DEFAULT_MODEL, effort } = options ?? {};
-  requireNonEmptyString(threadId, "options.threadId");
+  requireThreadId(threadId, "options.threadId");
   requireNonEmptyString(prompt, "options.prompt");
   requireAbsolutePath(schemaPath, "options.schemaPath");
   requireAbsolutePath(outputPath, "options.outputPath");
@@ -450,6 +506,21 @@ export async function runCodex(options) {
     ? buildResumeCodexArgs({ threadId: resumeThreadId, prompt, schemaPath, outputPath, model, effort })
     : buildFreshCodexArgs({ cwd, prompt, schemaPath, outputPath, model, effort, sandbox });
 
+  // STALE OUTPUT. The existsSync check in finalize() is satisfied by a
+  // leftover file from a previous attempt, so a run that wrote nothing could
+  // be reported as a success with the PREVIOUS attempt's content presented as
+  // this run's output. The brief explicitly contemplates retries and
+  // corrections against the same worktree, so this is reachable, not
+  // theoretical. Remove any pre-existing artifact (including a directory
+  // sitting at that path, which also satisfied existsSync) before spawning,
+  // so the post-run check can only ever pass on a file THIS run created.
+  try {
+    rmSync(outputPath, { force: true, recursive: true });
+  } catch (err) {
+    throw new CodexTransportError(`could not clear a pre-existing artifact at options.outputPath (${outputPath}): ${err.message}`);
+  }
+  const spawnedAtMs = Date.now();
+
   return await new Promise((resolvePromise) => {
     let child;
     try {
@@ -524,6 +595,20 @@ export async function runCodex(options) {
       }
     }
 
+    // The output artifact must be a regular FILE that THIS run produced.
+    // outputPath was cleared before spawn, so an mtime at/after spawn time
+    // (allowing 1s of filesystem timestamp granularity) means this run wrote
+    // it. A directory at that path is rejected outright.
+    function isFreshOutputFile() {
+      try {
+        const st = statSync(outputPath);
+        if (!st.isFile()) return false;
+        return st.mtimeMs >= spawnedAtMs - 1000;
+      } catch {
+        return false;
+      }
+    }
+
     function finalize(exitCode, forcedCategory) {
       if (settled) return;
       settled = true;
@@ -543,12 +628,34 @@ export async function runCodex(options) {
           failureCategory = "missing-thread-started";
         } else if (!acc.sawTurnCompleted) {
           failureCategory = "missing-turn-completed";
-        } else if (!existsSync(outputPath)) {
+        } else if (resumeThreadId && acc.threadId !== resumeThreadId) {
+          // THE HOST IS AUTHORITATIVE FOR THREAD IDENTITY.
+          //
+          // A resume must land on the thread the supervisor asked for. The
+          // real CLI can silently start a brand-new thread rather than
+          // erroring (see requireThreadId), so without this check a run that
+          // resumed nothing at all — or landed on some other thread — would
+          // return failureCategory: null, a valid finalOutputPath, and the
+          // OTHER thread's ID: a clean "success" on work the supervisor
+          // never requested. Comparing the observed thread.started ID
+          // against the requested one is what makes the host, not the
+          // model's self-report, the authority on which thread ran.
+          //
+          // Non-retryable by construction: it is not in RETRYABLE_CATEGORIES,
+          // and a mismatch means an unknown thread may already have mutated
+          // the worktree — the mutation-ambiguous BLOCKED path.
+          failureCategory = "thread-identity-mismatch";
+        } else if (!isFreshOutputFile()) {
           // A run can emit both authoritative events and exit 0 while never
           // actually writing the --output-last-message file. Reporting
           // success with a path to a nonexistent file would hand Task 9 a
           // path it expects to read the structured grade/report from; it
           // must be a categorized failure, not a success.
+          //
+          // The path is cleared before spawn and re-checked here as a
+          // regular file with an mtime at/after spawn time, so neither a
+          // leftover file from a previous attempt nor a directory sitting at
+          // that path can satisfy it.
           failureCategory = "missing-output";
         }
       }

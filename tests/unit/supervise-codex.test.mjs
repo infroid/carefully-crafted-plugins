@@ -24,6 +24,7 @@ import {
   SUPPORTED_EFFORTS,
   SUPPORTED_MODELS,
   RETRYABLE_CATEGORIES,
+  isRetryable,
   CodexTransportError,
   buildFreshCodexArgs,
   buildResumeCodexArgs,
@@ -38,6 +39,15 @@ import {
 } from "../../plugins/contexthub/scripts/supervise/codex.mjs";
 
 const MODULE_PATH = fileURLToPath(new URL("../../plugins/contexthub/scripts/supervise/codex.mjs", import.meta.url));
+
+// A resume thread ID must be a real UUID: the CLI treats a non-UUID
+// SESSION_ID as a thread *name* and silently starts a brand-new thread when
+// the name matches nothing, and a flag-shaped value like "--last" is consumed
+// as a flag. Tests therefore use genuine UUIDs, not placeholders like "t".
+const RESUME_UUID = "0199a213-81c0-7800-8aa1-bbab2a035a53";
+// A different, equally valid UUID — for proving the identity check actually
+// compares rather than merely checking shape.
+const OTHER_UUID = "019f7734-1c0d-7aa2-9f31-0c5e2b7a4d18";
 
 // --------------------------------------------------------------------------
 // Fake Codex executable (Step 1)
@@ -425,12 +435,12 @@ describe("buildResumeCodexArgs — exact resume shape", () => {
     const ctx = setupFakeCodex();
     try {
       const actions = [
-        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t" }) },
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: RESUME_UUID }) },
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
       await runCodex(freshWorkerArgs(ctx, {
-        resumeThreadId: "original-thread-id",
+        resumeThreadId: RESUME_UUID,
         env: scriptEnv(ctx, withOutputWrite(ctx, actions)),
       }));
       const calls = recordedCalls(ctx.recordFile);
@@ -443,10 +453,10 @@ describe("buildResumeCodexArgs — exact resume shape", () => {
 
   test("only high|xhigh|max are permitted resume efforts (never medium, the grader's fixed value)", () => {
     for (const effort of ["high", "xhigh", "max"]) {
-      assert.doesNotThrow(() => buildResumeCodexArgs({ threadId: "t", prompt: "p", schemaPath: "/s", outputPath: "/o", effort }));
+      assert.doesNotThrow(() => buildResumeCodexArgs({ threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o", effort }));
     }
     for (const effort of ["none", "low", "medium"]) {
-      assert.throws(() => buildResumeCodexArgs({ threadId: "t", prompt: "p", schemaPath: "/s", outputPath: "/o", effort }), CodexTransportError);
+      assert.throws(() => buildResumeCodexArgs({ threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o", effort }), CodexTransportError);
     }
   });
 });
@@ -495,7 +505,7 @@ describe("runCodex — pre-spawn effort rejection (fake Codex never invoked)", (
     try {
       await assert.rejects(() => runCodex({
         cwd: ctx.dir, prompt: "p", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-        logPath: join(ctx.dir, "log.txt"), effort: "medium", resumeThreadId: "abc", timeoutMs: 5000,
+        logPath: join(ctx.dir, "log.txt"), effort: "medium", resumeThreadId: RESUME_UUID, timeoutMs: 5000,
         codexBin: ctx.fakeCodex, env: { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile },
       }), CodexTransportError);
       assert.equal(existsSync(ctx.recordFile), false);
@@ -794,7 +804,7 @@ describe("runCodex — malformed JSONL and missing-completion (stdout-only rule)
       assert.equal(result.failureCategory, "malformed-jsonl");
       assert.equal(result.threadId, "t1", "thread evidence is preserved for mutation-safety");
       assert.equal(result.usage, null, "a truncated turn.completed must never yield usage");
-      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
+      assert.ok(!isRetryable(result.failureCategory));
     } finally {
       cleanup(ctx.dir);
     }
@@ -845,12 +855,12 @@ describe("runCodex — stdin is always closed", () => {
         return spawn(cmd, args, spawnOptions);
       };
       const actions = [
-        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "resumed-id" }) },
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: RESUME_UUID }) },
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
       await runCodex(freshWorkerArgs(ctx, {
-        resumeThreadId: "original-thread-id",
+        resumeThreadId: RESUME_UUID,
         env: scriptEnv(ctx, actions),
         spawnImpl: spyingSpawn,
       }));
@@ -870,7 +880,7 @@ describe("runCodex — resume cwd confinement", () => {
     const originalWorktree = realpathSync(mkdtempSync(join(tmpdir(), "original-worktree-")));
     try {
       const actions = [
-        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "resumed" }) },
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: RESUME_UUID }) },
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
@@ -881,7 +891,7 @@ describe("runCodex — resume cwd confinement", () => {
         outputPath: join(ctx.dir, "o.json"),
         logPath: join(ctx.dir, "log.txt"),
         effort: "high",
-        resumeThreadId: "original-thread-id",
+        resumeThreadId: RESUME_UUID,
         timeoutMs: 5000,
         codexBin: ctx.fakeCodex,
         env: scriptEnv(ctx, withOutputWrite(ctx, actions, join(ctx.dir, "o.json"))),
@@ -1100,7 +1110,7 @@ describe("mutation-safe retry evidence", () => {
       // a literal here: this is a safety-relevant policy and Task 9's
       // scheduler must consume the same shared symbol rather than
       // re-deriving it from prose.
-      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
+      assert.ok(!isRetryable(result.failureCategory));
     } finally {
       cleanup(ctx.dir);
     }
@@ -1113,9 +1123,39 @@ describe("RETRYABLE_CATEGORIES — exported shared policy", () => {
     for (const nonRetryable of [
       "auth", "timeout", "malformed-jsonl", "missing-output",
       "missing-thread-started", "missing-turn-completed", "nonzero-exit",
+      "thread-identity-mismatch",
     ]) {
-      assert.ok(!RETRYABLE_CATEGORIES.has(nonRetryable), `${nonRetryable} must never be retryable`);
+      assert.ok(!isRetryable(nonRetryable), `${nonRetryable} must never be retryable`);
     }
+  });
+
+  // Object.freeze(new Set(...)) freezes own properties, NOT a Set's internal
+  // slots: .add() and .delete() both still succeeded on the old export while
+  // Object.isFrozen reported true — a false assurance worse than none, since
+  // "timeout" is exactly the mutation-ambiguous category the set exists to
+  // exclude. The policy is now a genuinely frozen array behind an
+  // isRetryable() predicate.
+  test("the exported policy is genuinely immutable, not merely Object.isFrozen", () => {
+    assert.ok(Array.isArray(RETRYABLE_CATEGORIES));
+    assert.ok(Object.isFrozen(RETRYABLE_CATEGORIES));
+    // Mutation attempts must fail rather than silently widening the policy.
+    assert.throws(() => { RETRYABLE_CATEGORIES.push("timeout"); }, TypeError);
+    assert.throws(() => { RETRYABLE_CATEGORIES[0] = "timeout"; }, TypeError);
+    assert.throws(() => { RETRYABLE_CATEGORIES.length = 0; }, TypeError);
+    assert.deepEqual([...RETRYABLE_CATEGORIES].sort(), ["rate-limited", "transport"]);
+    // And the predicate is unaffected by any of it.
+    assert.equal(isRetryable("timeout"), false);
+    assert.equal(isRetryable("rate-limited"), true);
+  });
+
+  test("mutating a Set built from the exported array cannot widen the real policy", () => {
+    // Even a caller that reconstructs a Set (the old shape) and mutates that
+    // copy cannot affect what isRetryable reports.
+    const copy = new Set(RETRYABLE_CATEGORIES);
+    copy.add("timeout");
+    copy.delete("rate-limited");
+    assert.equal(isRetryable("timeout"), false);
+    assert.equal(isRetryable("rate-limited"), true);
   });
 
   test("a rate-limited grader failure is in the retryable set", async () => {
@@ -1124,8 +1164,131 @@ describe("RETRYABLE_CATEGORIES — exported shared policy", () => {
       const actions = [{ type: "stderr", text: "429 too many requests\n" }, { type: "exit", code: 1 }];
       const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
       assert.equal(result.failureCategory, "rate-limited");
-      assert.ok(RETRYABLE_CATEGORIES.has(result.failureCategory));
+      assert.ok(isRetryable(result.failureCategory));
       assert.equal(result.threadId, null, "and no thread had started, so a fresh retry is structurally safe");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("thread ID validation — --last injection and silent new-thread starts", () => {
+  // threadId lands as a bare positional at the end of the resume argv, so
+  // clap parses anything flag-shaped AS a flag. With only a non-empty-string
+  // check, buildResumeCodexArgs({threadId: "--last"}) produced an argv in
+  // which the real 0.144.5 CLI consumed --last and resumed the most recent
+  // session in the cwd — precisely what the plan forbids.
+  test("a flag-shaped threadId is rejected, so `--last` can never be injected", () => {
+    for (const injected of ["--last", "--all", "-c", "--sandbox", "--ignore-user-config"]) {
+      assert.throws(
+        () => buildResumeCodexArgs({ threadId: injected, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high" }),
+        CodexTransportError,
+        `threadId ${injected} must be rejected`,
+      );
+    }
+  });
+
+  // The real CLI treats a non-UUID SESSION_ID as a thread *name*, and a name
+  // matching nothing SILENTLY STARTS A BRAND-NEW THREAD instead of erroring.
+  // So a name-like ID would not fail loudly — it would quietly produce a
+  // fresh, unrelated thread while the supervisor believed it had resumed.
+  test("a non-UUID threadId is rejected (a name that matches nothing silently starts a new thread)", () => {
+    for (const bad of ["task-a-correction", "../../etc", "x", "  ", "", "abc", "original-thread-id", "0199a213-81c0-7800-8aa1-bbab2a035a5", "0199a213_81c0_7800_8aa1_bbab2a035a53"]) {
+      assert.throws(
+        () => buildResumeCodexArgs({ threadId: bad, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high" }),
+        CodexTransportError,
+        `threadId ${JSON.stringify(bad)} must be rejected`,
+      );
+    }
+  });
+
+  test("a well-formed UUID is accepted and lands as the second-to-last positional", () => {
+    const argv = buildResumeCodexArgs({ threadId: RESUME_UUID, prompt: "PROMPT", schemaPath: "/s", outputPath: "/o", effort: "high" });
+    assert.equal(argv[argv.length - 2], RESUME_UUID);
+    assert.equal(argv[argv.length - 1], "PROMPT");
+    assert.ok(!argv.includes("--last"));
+  });
+
+  test("`--last` as a threadId is rejected pre-spawn by runCodex (fake never invoked)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      await assert.rejects(
+        () => runCodex(freshWorkerArgs(ctx, { resumeThreadId: "--last" })),
+        (err) => err instanceof CodexTransportError && /must be a UUID/.test(err.message),
+      );
+      assert.equal(existsSync(ctx.recordFile), false, "fake Codex must never have been invoked with an injected --last");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a non-UUID threadId is rejected pre-spawn by runCodex (fake never invoked)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      await assert.rejects(
+        () => runCodex(freshWorkerArgs(ctx, { resumeThreadId: "task-a-correction" })),
+        CodexTransportError,
+      );
+      assert.equal(existsSync(ctx.recordFile), false);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("thread identity — the host is authoritative for which thread ran", () => {
+  // A resume that lands on a different thread than requested previously
+  // returned failureCategory: null, a valid finalOutputPath, and the OTHER
+  // thread's ID — a clean "success" on work the supervisor never asked for.
+  test("a resume that reports a different thread ID is categorized, not reported as success", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: OTHER_UUID }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, {
+        resumeThreadId: RESUME_UUID,
+        env: scriptEnv(ctx, withOutputWrite(ctx, actions)),
+      }));
+      assert.equal(result.failureCategory, "thread-identity-mismatch");
+      assert.equal(result.finalOutputPath, null, "never hand back output from a thread we did not ask for");
+      assert.equal(result.threadId, OTHER_UUID, "the observed thread ID is preserved as evidence");
+      assert.notEqual(result.threadId, RESUME_UUID);
+      // Non-retryable: an unknown thread may already have mutated the
+      // worktree, so this is the mutation-ambiguous BLOCKED path.
+      assert.equal(isRetryable(result.failureCategory), false);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a resume that lands on the requested thread succeeds", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: RESUME_UUID }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, {
+        resumeThreadId: RESUME_UUID,
+        env: scriptEnv(ctx, withOutputWrite(ctx, actions)),
+      }));
+      assert.equal(result.failureCategory, null);
+      assert.equal(result.threadId, RESUME_UUID);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a FRESH call is not subject to the identity check (it has no requested thread)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const result = await runCodex(freshWorkerArgs(ctx));
+      assert.equal(result.failureCategory, null);
+      assert.equal(result.threadId, "fake-thread-id", "a fresh run reports whatever thread the CLI started");
     } finally {
       cleanup(ctx.dir);
     }
@@ -1149,7 +1312,7 @@ describe("missing-output — success is never reported for a file that was never
       assert.equal(result.failureCategory, "missing-output");
       assert.equal(result.finalOutputPath, null, "never hand back a path to a file that does not exist");
       assert.equal(existsSync(join(ctx.dir, "output.json")), false);
-      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
+      assert.ok(!isRetryable(result.failureCategory));
     } finally {
       cleanup(ctx.dir);
     }
@@ -1161,6 +1324,66 @@ describe("missing-output — success is never reported for a file that was never
       const result = await runCodex(freshWorkerArgs(ctx));
       assert.equal(result.failureCategory, null);
       assert.ok(existsSync(result.finalOutputPath), "the returned path must exist on disk");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  // A leftover file from a previous attempt satisfied the old existsSync
+  // check, so a run that wrote nothing was reported as a success with the
+  // PREVIOUS attempt's content presented as this run's output. The brief
+  // contemplates retries and corrections against the same worktree, so this
+  // is reachable rather than theoretical.
+  test("a stale output file from a previous attempt is never accepted as this run's output", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const outputPath = join(ctx.dir, "output.json");
+      writeFileSync(outputPath, JSON.stringify({ score: 5, from: "a previous attempt" }), "utf8");
+      assert.ok(existsSync(outputPath), "precondition: a stale artifact exists before the run");
+
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t1" }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      assert.equal(result.failureCategory, "missing-output", "the stale file must not rescue a run that wrote nothing");
+      assert.equal(result.finalOutputPath, null);
+      // The stale artifact is cleared before spawn, so its content can never
+      // be mistaken for this run's output.
+      assert.equal(existsSync(outputPath), false);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a directory sitting at outputPath is not accepted as output", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const outputPath = join(ctx.dir, "output.json");
+      mkdirSync(outputPath, { recursive: true });
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t1" }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      assert.equal(result.failureCategory, "missing-output");
+      assert.equal(result.finalOutputPath, null);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a fresh write over a cleared stale path IS accepted (the clear does not break the success path)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const outputPath = join(ctx.dir, "output.json");
+      writeFileSync(outputPath, "stale", "utf8");
+      const result = await runCodex(freshWorkerArgs(ctx)); // default fake writes the output
+      assert.equal(result.failureCategory, null);
+      assert.equal(result.finalOutputPath, outputPath);
+      assert.notEqual(readFileSync(outputPath, "utf8"), "stale", "the content must be this run's, not the stale bytes");
     } finally {
       cleanup(ctx.dir);
     }
@@ -1178,7 +1401,7 @@ describe("model gating — as strict as effort gating", () => {
         cwd: "/w", prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high", sandbox: "workspace-write", model,
       }), CodexTransportError, `fresh must reject model ${model}`);
       assert.throws(() => buildResumeCodexArgs({
-        threadId: "t", prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high", model,
+        threadId: RESUME_UUID, prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high", model,
       }), CodexTransportError, `resume must reject model ${model}`);
     }
   });
@@ -1216,7 +1439,7 @@ describe("timeout bound is derived and can never be raised by input", () => {
         { label: "worker high", opts: { sandbox: "workspace-write", effort: "high" }, ceiling: 900_000 },
         { label: "worker xhigh", opts: { sandbox: "workspace-write", effort: "xhigh" }, ceiling: 1_800_000 },
         { label: "worker max", opts: { sandbox: "workspace-write", effort: "max" }, ceiling: 2_700_000 },
-        { label: "resume high", opts: { resumeThreadId: "t", effort: "high" }, ceiling: 900_000 },
+        { label: "resume high", opts: { resumeThreadId: RESUME_UUID, effort: "high" }, ceiling: 900_000 },
       ];
       for (const c of cases) {
         await assert.rejects(
