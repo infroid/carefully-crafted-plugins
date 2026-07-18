@@ -47,7 +47,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { statSync, writeFileSync } from "node:fs";
+import { statSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 export class CodexTransportError extends Error {
@@ -66,12 +66,43 @@ export class CodexTransportError extends Error {
 export const SUPPORTED_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 
 const DEFAULT_MODEL = "gpt-5.6-sol";
+
+// The model is gated exactly as strictly as the effort is. Without this,
+// `requireNonEmptyString` was the only check and a caller could route a
+// supervisor call to an arbitrary model (`-m gpt-3.5-turbo`, `-m o3-mini`)
+// while effort remained rigorously validated — an asymmetry that silently
+// defeats the model-pinning acceptance criteria. Add a model here only
+// when it is a deliberate, reviewed supervisor-tier choice.
+export const SUPPORTED_MODELS = new Set(["gpt-5.6-sol"]);
+
 // Verbosity is fixed, never caller-selectable: every argv shape in the brief
 // carries exactly `-c model_verbosity=low`.
 const FIXED_VERBOSITY = "low";
 
 const GRADER_SANDBOX = "read-only";
 const WORKER_SANDBOX = "workspace-write";
+
+// The ONLY failure categories a caller may ever retry, and then only for a
+// read-only grader (a writing worker additionally requires no thread.started
+// plus independent git proof that the worktree is clean — see the
+// mutation-safety note at the top of this file).
+//
+// This lives here, exported, rather than as a literal inside a test: it is a
+// safety-relevant policy that Task 9's scheduler must consume as a shared
+// symbol, not re-derive from prose. "auth", "malformed-jsonl",
+// "missing-output", "missing-thread-started", "missing-turn-completed",
+// "timeout", and "nonzero-exit" are all deliberately absent.
+export const RETRYABLE_CATEGORIES = Object.freeze(new Set(["rate-limited", "transport"]));
+
+function requireSupportedModel(model, name) {
+  requireNonEmptyString(model, name);
+  if (!SUPPORTED_MODELS.has(model)) {
+    throw new CodexTransportError(
+      `${name} must be one of ${[...SUPPORTED_MODELS].join("|")}, got ${JSON.stringify(model)} — the supervisor never routes a call to an unreviewed model`,
+    );
+  }
+  return model;
+}
 
 // The ENTIRE set of sandbox values this transport will ever pass to Codex.
 // "danger-full-access" is not a member of this map and there is no other
@@ -128,18 +159,44 @@ function assertSandboxEffort(sandbox, effort) {
 // never accepts a cwd/sandbox option at all (the real `codex exec resume`
 // interface exposes neither -C nor -s/--sandbox — verified), so there is no
 // field here that could smuggle either flag into a resume argv.
+//
+// SANDBOX PINNING. A fresh call pins its sandbox with `--sandbox <mode>`,
+// which beats user config. Resume has no such flag, so for a while this
+// module passed NO sandbox information at all on resume — meaning the
+// effective sandbox resolved from the session record and/or the user's
+// ~/.codex/config.toml. If a user's config set `sandbox_mode =
+// "danger-full-access"`, a resumed supervisor worker would have run
+// UNSANDBOXED against a real worktree, without this module ever emitting
+// that string. The fixed argv shape proved we don't PASS a bad sandbox; it
+// never proved the run IS workspace-write.
+//
+// The fix is the `-c sandbox_mode=<mode>` override below. Verified against
+// the real 0.144.5 CLI:
+//   - `-c/--config` IS available on `exec resume` (per its own --help).
+//   - `sandbox_mode` is a VALIDATED config key — unlike the unvalidated
+//     `model_reasoning_effort`, an invalid value is rejected outright:
+//       Error loading config.toml: unknown variant `not-a-real-mode`,
+//       expected one of `read-only`, `workspace-write`, `danger-full-access`
+//     so the CLI itself enforces the pin rather than silently accepting it.
+// This is one scoped key, NOT `--ignore-user-config` (which the plan
+// forbids): it overrides exactly the sandbox and nothing else.
 // --------------------------------------------------------------------------
 
 // Fresh execution: `exec --json --sandbox <sandbox> -C <cwd> -m <model>
 // -c model_reasoning_effort=<effort> -c model_verbosity=low <prompt>
 // --output-schema <schemaPath> --output-last-message <outputPath>`.
+//
+// Fresh deliberately does NOT carry a redundant `-c sandbox_mode=` override:
+// the explicit `--sandbox` flag already beats user config, and the brief
+// specifies this exact grader/worker argv. Only resume, which has no
+// sandbox flag at all, needs the config-key pin.
 export function buildFreshCodexArgs(options) {
   const { cwd, prompt, schemaPath, outputPath, model = DEFAULT_MODEL, effort, sandbox } = options ?? {};
   requireAbsolutePath(cwd, "options.cwd");
   requireNonEmptyString(prompt, "options.prompt");
   requireAbsolutePath(schemaPath, "options.schemaPath");
   requireAbsolutePath(outputPath, "options.outputPath");
-  requireNonEmptyString(model, "options.model");
+  requireSupportedModel(model, "options.model");
   assertSandboxEffort(sandbox, effort);
 
   return [
@@ -154,22 +211,22 @@ export function buildFreshCodexArgs(options) {
 }
 
 // Resume: `exec resume --json -m <model> -c model_reasoning_effort=<effort>
-// -c model_verbosity=low --output-schema <schemaPath>
-// --output-last-message <outputPath> <threadId> <prompt>`. No -C, no
-// --sandbox, no --last: resume is always the exact thread, confined by the
-// caller setting the CHILD PROCESS's cwd (not an argv flag) to the original
-// absolute worktree — see runCodex().
+// -c model_verbosity=low -c sandbox_mode=workspace-write
+// --output-schema <schemaPath> --output-last-message <outputPath>
+// <threadId> <prompt>`. No -C, no --sandbox, no --last: resume is always the
+// exact thread, confined by the caller setting the CHILD PROCESS's cwd (not
+// an argv flag) to the original absolute worktree — see runCodex() — AND by
+// the explicit sandbox_mode pin (see the SANDBOX PINNING note above).
 export function buildResumeCodexArgs(options) {
   const { threadId, prompt, schemaPath, outputPath, model = DEFAULT_MODEL, effort } = options ?? {};
   requireNonEmptyString(threadId, "options.threadId");
   requireNonEmptyString(prompt, "options.prompt");
   requireAbsolutePath(schemaPath, "options.schemaPath");
   requireAbsolutePath(outputPath, "options.outputPath");
-  requireNonEmptyString(model, "options.model");
+  requireSupportedModel(model, "options.model");
   // Resume is only ever legal for a task that already ran as a writing
-  // worker (workspace-write), so the same high|xhigh|max policy applies —
-  // there is no separate "resume sandbox" to key off of because resume
-  // never carries a sandbox flag at all.
+  // worker, so the same high|xhigh|max policy applies — and the sandbox it
+  // is pinned to below is exactly that worker sandbox.
   const workerEfforts = SANDBOX_EFFORT_POLICY.get(WORKER_SANDBOX);
   if (!SUPPORTED_EFFORTS.has(effort) || !workerEfforts.has(effort)) {
     throw new CodexTransportError(`resume effort must be one of ${[...workerEfforts].join("|")}, got ${JSON.stringify(effort)}`);
@@ -180,6 +237,10 @@ export function buildResumeCodexArgs(options) {
     "-m", model,
     "-c", `model_reasoning_effort=${effort}`,
     "-c", `model_verbosity=${FIXED_VERBOSITY}`,
+    // The pin. WORKER_SANDBOX is the same constant the fresh path uses, so
+    // this can never drift to a different mode, and "danger-full-access" is
+    // not a value any code path in this module can reach.
+    "-c", `sandbox_mode=${WORKER_SANDBOX}`,
     "--output-schema", schemaPath,
     "--output-last-message", outputPath,
     threadId, prompt,
@@ -322,6 +383,17 @@ function categorizeStderr(text) {
 // runCodex — spawn, timeout, JSONL parsing, mutation-safety evidence.
 // --------------------------------------------------------------------------
 
+// Which call kind a given (sandbox, resumeThreadId) pair represents. The
+// caller does not get to declare this — it is derived from the same fields
+// that determine the argv, so the timeout bound and the argv can never
+// disagree about what kind of call this is.
+function deriveCallKind(sandbox, resumeThreadId) {
+  if (resumeThreadId) return "resume";
+  if (sandbox === GRADER_SANDBOX) return "grader";
+  if (sandbox === WORKER_SANDBOX) return "worker";
+  throw new CodexTransportError(`cannot derive a call kind from sandbox ${JSON.stringify(sandbox)}`);
+}
+
 export async function runCodex(options) {
   const {
     cwd, prompt, schemaPath, outputPath, logPath,
@@ -341,8 +413,34 @@ export async function runCodex(options) {
   requireAbsolutePath(schemaPath, "options.schemaPath");
   requireAbsolutePath(outputPath, "options.outputPath");
   requireAbsolutePath(logPath, "options.logPath");
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new CodexTransportError("options.timeoutMs must be a positive integer");
+
+  // THE TIMEOUT BOUND IS DERIVED, NEVER RAISABLE BY INPUT.
+  //
+  // Previously `timeoutMs` was taken at face value, so a caller could pass
+  // 86_400_000 for a `high` worker and the log would faithfully record that
+  // 24-hour value as the "selected bound" while timeoutForCall("worker",
+  // "high") said 900_000. The scheduler's bound was advisory, not enforced.
+  //
+  // Now the ceiling always comes from the same (kind, effort) derivation the
+  // scheduler uses, and `timeoutMs` may only ever LOWER it, never raise it.
+  // Lowering is safe in the direction that matters — it can only produce an
+  // earlier, correctly-categorized timeout, never a longer-running process
+  // holding a writable worktree — and it is what lets the timeout/SIGKILL
+  // wiring be tested in milliseconds instead of 900 real seconds. Any
+  // attempt to exceed the derived ceiling is rejected pre-spawn.
+  const callKind = deriveCallKind(sandbox, resumeThreadId);
+  const derivedTimeoutMs = timeoutForCall(callKind, callKind === "grader" ? undefined : effort);
+  let effectiveTimeoutMs = derivedTimeoutMs;
+  if (timeoutMs !== undefined) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new CodexTransportError("options.timeoutMs must be a positive integer");
+    }
+    if (timeoutMs > derivedTimeoutMs) {
+      throw new CodexTransportError(
+        `options.timeoutMs ${timeoutMs} exceeds the derived bound for a "${callKind}" call at effort ${JSON.stringify(effort)} (${derivedTimeoutMs}ms). The timeout is derived from call kind and validated effort and can never be raised by input.`,
+      );
+    }
+    effectiveTimeoutMs = timeoutMs;
   }
 
   // Every effort/sandbox rejection happens HERE, synchronously, before
@@ -400,13 +498,15 @@ export async function runCodex(options) {
       killTimer = setTimeout(() => {
         try { child.kill("SIGKILL"); } catch { /* not supported / already gone */ }
       }, killGraceMs);
-    }, timeoutMs);
+    }, effectiveTimeoutMs);
 
     function writeLog(failureCategory, exitCode) {
       const text = [
         `$ ${codexBin} ${argv.join(" ")}`,
         `cwd: ${cwd}`,
-        `timeoutMs: ${timeoutMs}`,
+        `callKind: ${callKind}`,
+        `derivedTimeoutMs: ${derivedTimeoutMs}`,
+        `timeoutMs: ${effectiveTimeoutMs}`,
         `exitCode: ${exitCode}`,
         `failureCategory: ${failureCategory ?? "null"}`,
         "",
@@ -443,6 +543,13 @@ export async function runCodex(options) {
           failureCategory = "missing-thread-started";
         } else if (!acc.sawTurnCompleted) {
           failureCategory = "missing-turn-completed";
+        } else if (!existsSync(outputPath)) {
+          // A run can emit both authoritative events and exit 0 while never
+          // actually writing the --output-last-message file. Reporting
+          // success with a path to a nonexistent file would hand Task 9 a
+          // path it expects to read the structured grade/report from; it
+          // must be a categorized failure, not a success.
+          failureCategory = "missing-output";
         }
       }
 
@@ -510,7 +617,17 @@ export function inspectSuperpowersSkills(pluginEntry) {
     return { ok: false, reason: "no-entry", missingSkills: SORTED_REQUIRED_SKILLS, sourcePath: null, requiredSkills: SORTED_REQUIRED_SKILLS };
   }
   const source = pluginEntry.source;
-  if (!source || source.source !== "local" || typeof source.path !== "string" || source.path.length === 0) {
+  // The path must be ABSOLUTE, not merely non-empty. A relative path would
+  // be join()ed against process.cwd() below, silently running the skill
+  // inventory check against the user's own checkout instead of the plugin's
+  // real install directory — which could spuriously "find" four
+  // same-named directories that have nothing to do with the Codex plugin.
+  // Brief Step 5: reject a non-local *or missing* path.
+  if (
+    !source || source.source !== "local"
+    || typeof source.path !== "string" || source.path.length === 0
+    || !source.path.startsWith("/")
+  ) {
     return {
       ok: false,
       reason: "non-local-or-missing-source",
@@ -550,6 +667,18 @@ const EXEC_HELP_REQUIRED = [
   { name: "output-schema", pattern: /--output-schema\b/ },
   { name: "output-last-message", pattern: /(-o|--output-last-message)\b/ },
 ];
+// Resume-only capabilities. A gap here does NOT hard-fail the preflight:
+// fresh execution still works, and the brief documents a fresh-corrections
+// fallback ("if the installed CLI cannot preserve that guarantee, preflight
+// disables resume and requires fresh corrections"). These gaps therefore
+// degrade `resumeSupported` to false instead of collapsing into
+// `unsupported-codex-cli`, so Task 9 has a first-class field to branch on
+// rather than having to string-match a prose message.
+//
+// Note that `config-override` is load-bearing here, not cosmetic: it is what
+// carries the `-c sandbox_mode=workspace-write` pin. A resume interface
+// without `-c` cannot be sandbox-pinned at all, so resume MUST be disabled
+// in that case rather than run with an unpinned sandbox.
 const RESUME_HELP_REQUIRED = [
   { name: "session-id-positional", pattern: /SESSION_ID/i },
   { name: "json-output", pattern: /--json\b/ },
@@ -567,10 +696,10 @@ const PLUGIN_LIST_HELP_REQUIRED = [
 ];
 
 const HELP_PROBES = [
-  { argv: ["plugin", "--help"], required: PLUGIN_HELP_REQUIRED, label: "plugin --help" },
-  { argv: ["plugin", "list", "--help"], required: PLUGIN_LIST_HELP_REQUIRED, label: "plugin list --help" },
-  { argv: ["exec", "--help"], required: EXEC_HELP_REQUIRED, label: "exec --help" },
-  { argv: ["exec", "resume", "--help"], required: RESUME_HELP_REQUIRED, label: "exec resume --help" },
+  { argv: ["plugin", "--help"], required: PLUGIN_HELP_REQUIRED, label: "plugin --help", resumeOnly: false },
+  { argv: ["plugin", "list", "--help"], required: PLUGIN_LIST_HELP_REQUIRED, label: "plugin list --help", resumeOnly: false },
+  { argv: ["exec", "--help"], required: EXEC_HELP_REQUIRED, label: "exec --help", resumeOnly: false },
+  { argv: ["exec", "resume", "--help"], required: RESUME_HELP_REQUIRED, label: "exec resume --help", resumeOnly: true },
 ];
 
 function missingCapabilitiesFromHelp(text, required) {
@@ -586,6 +715,12 @@ function evidence(overrides) {
     ok: false,
     failureCategory: null,
     missingCapabilities: [],
+    // Degraded-capability channel, distinct from the hard-failure channel.
+    // Defaults to false so an early return (missing-codex, not-authenticated,
+    // ...) never implies resume is usable; only a run that actually cleared
+    // the resume probes sets it true.
+    resumeSupported: false,
+    missingResumeCapabilities: [],
     codexVersion: null,
     authSource: null,
     plugin: null,
@@ -623,18 +758,23 @@ export async function checkCodexPrerequisites(options) {
   }
   const codexVersion = (versionResult.stdout || "").trim();
 
+  // Two separate buckets: a gap in a fresh-execution capability is a hard
+  // failure, a gap in a resume-only capability merely disables resume.
   const missingCapabilities = [];
+  const missingResumeCapabilities = [];
   for (const p of HELP_PROBES) {
+    const bucket = p.resumeOnly ? missingResumeCapabilities : missingCapabilities;
     const res = probe(p.argv);
     if (res.error || res.status !== 0) {
-      missingCapabilities.push(`${p.label}: probe failed`);
+      bucket.push(`${p.label}: probe failed`);
       continue;
     }
     const text = `${res.stdout || ""}\n${res.stderr || ""}`;
     for (const name of missingCapabilitiesFromHelp(text, p.required)) {
-      missingCapabilities.push(`${p.label}: ${name}`);
+      bucket.push(`${p.label}: ${name}`);
     }
   }
+  const resumeSupported = missingResumeCapabilities.length === 0;
 
   const pluginListJsonResult = probe(["plugin", "list", "--json"]);
   let pluginList = null;
@@ -652,6 +792,8 @@ export async function checkCodexPrerequisites(options) {
     return evidence({
       failureCategory: "unsupported-codex-cli",
       missingCapabilities,
+      resumeSupported,
+      missingResumeCapabilities,
       codexVersion,
       message: `The installed Codex CLI (${codexVersion || "unknown version"}) is missing required capabilities: ${missingCapabilities.join("; ")}.`,
     });
@@ -682,6 +824,8 @@ export async function checkCodexPrerequisites(options) {
   if (!entry || entry.installed !== true) {
     return evidence({
       failureCategory: "missing-superpowers",
+      resumeSupported,
+      missingResumeCapabilities,
       codexVersion,
       authSource,
       message: `The "${SUPERPOWERS_PLUGIN_ID}" Codex plugin is not installed. Run \`codex plugin add ${SUPERPOWERS_PLUGIN_ID}\` yourself — this script never installs plugins on your behalf.`,
@@ -690,6 +834,8 @@ export async function checkCodexPrerequisites(options) {
   if (entry.enabled !== true) {
     return evidence({
       failureCategory: "disabled-superpowers",
+      resumeSupported,
+      missingResumeCapabilities,
       codexVersion,
       authSource,
       plugin: { pluginId: entry.pluginId, version: entry.version ?? null, sourcePath: entry.source?.path ?? null },
@@ -704,6 +850,8 @@ export async function checkCodexPrerequisites(options) {
   if (!skillsCheck.ok) {
     return evidence({
       failureCategory: "incomplete-superpowers",
+      resumeSupported,
+      missingResumeCapabilities,
       codexVersion,
       authSource,
       plugin: pluginEvidence,
@@ -716,6 +864,8 @@ export async function checkCodexPrerequisites(options) {
   return evidence({
     ok: true,
     failureCategory: null,
+    resumeSupported,
+    missingResumeCapabilities,
     codexVersion,
     authSource,
     plugin: pluginEvidence,

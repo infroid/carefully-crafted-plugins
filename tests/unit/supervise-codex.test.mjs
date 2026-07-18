@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   SUPPORTED_EFFORTS,
+  SUPPORTED_MODELS,
+  RETRYABLE_CATEGORIES,
   CodexTransportError,
   buildFreshCodexArgs,
   buildResumeCodexArgs,
@@ -109,9 +111,15 @@ if (argv[0] === "exec" && argv[1] === "resume" && argv[2] === "--help") {
 }
 if (argv[0] === "exec") {
   const scriptJson = process.env.FAKE_CODEX_SCRIPT;
+  // Default (unscripted) behaviour models a fully healthy run: both
+  // authoritative events AND the --output-last-message file actually written,
+  // which is what the real CLI does on success.
+  const olmIdx = argv.indexOf("--output-last-message");
+  const defaultOut = olmIdx >= 0 ? argv[olmIdx + 1] : null;
   const actions = scriptJson ? JSON.parse(scriptJson) : [
     { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "fake-thread-id" }) },
     { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }) },
+    ...(defaultOut ? [{ type: "writeOutput", path: defaultOut, content: "{}" }] : []),
     { type: "exit", code: 0 },
   ];
 
@@ -121,6 +129,10 @@ if (argv[0] === "exec") {
   (async () => {
     for (const action of actions) {
       if (action.type === "stdout") process.stdout.write(action.line + "\\n");
+      // rawStdout writes EXACTLY the given text with no trailing newline, so
+      // a caller can split one JSON event across several separate writes and
+      // genuinely exercise partial-line buffering.
+      else if (action.type === "rawStdout") process.stdout.write(action.text);
       else if (action.type === "stderr") process.stderr.write(action.text);
       else if (action.type === "sleepMs") await new Promise((r) => setTimeout(r, action.ms));
       else if (action.type === "touchFile") {
@@ -370,11 +382,63 @@ describe("buildResumeCodexArgs — exact resume shape", () => {
       "-m", "gpt-5.6-sol",
       "-c", "model_reasoning_effort=high",
       "-c", "model_verbosity=low",
+      "-c", "sandbox_mode=workspace-write",
       "--output-schema", "/worktrees/task-a/output.schema.json",
       "--output-last-message", "/worktrees/task-a/output.json",
       "0199a213-81c0-7800-8aa1-bbab2a035a53",
       "RESUME_PROMPT",
     ]);
+  });
+
+  // CRITICAL. `exec resume` has no -s/--sandbox flag, so without an explicit
+  // config-key pin the effective sandbox resolves from the session record
+  // and/or the user's ~/.codex/config.toml. A user whose config sets
+  // `sandbox_mode = "danger-full-access"` would then get an UNSANDBOXED
+  // resumed worker against a real worktree — without this module ever
+  // emitting that string. Verified against the real 0.144.5 CLI:
+  //   * `-c/--config` IS available on `exec resume`.
+  //   * `sandbox_mode` is a *validated* key (unlike model_reasoning_effort):
+  //       Error loading config.toml: unknown variant `not-a-real-mode`,
+  //       expected one of `read-only`, `workspace-write`, `danger-full-access`
+  // so the CLI itself enforces the pin.
+  test("every resume argv pins the sandbox with -c sandbox_mode=workspace-write", () => {
+    for (const effort of ["high", "xhigh", "max"]) {
+      const argv = buildResumeCodexArgs({
+        threadId: "0199a213-81c0-7800-8aa1-bbab2a035a53",
+        prompt: "p",
+        schemaPath: "/w/s.json",
+        outputPath: "/w/o.json",
+        effort,
+      });
+      const idx = argv.indexOf("sandbox_mode=workspace-write");
+      assert.ok(idx > 0, `resume argv at effort ${effort} must pin sandbox_mode`);
+      assert.equal(argv[idx - 1], "-c", "the pin must be passed as a -c config override");
+      // The pin must never be the forbidden mode, and must never be
+      // accompanied by a wholesale config bypass.
+      assert.ok(!argv.some((a) => a.includes("danger-full-access")));
+      assert.ok(!argv.includes("--ignore-user-config"));
+      assert.ok(!argv.includes("--ignore-rules"));
+    }
+  });
+
+  test("the resume sandbox pin is reachable through runCodex's real spawned argv", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t" }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      await runCodex(freshWorkerArgs(ctx, {
+        resumeThreadId: "original-thread-id",
+        env: scriptEnv(ctx, withOutputWrite(ctx, actions)),
+      }));
+      const calls = recordedCalls(ctx.recordFile);
+      assert.equal(calls.length, 1);
+      assert.ok(calls[0].argv.includes("sandbox_mode=workspace-write"), "the spawned resume process must carry the sandbox pin");
+    } finally {
+      cleanup(ctx.dir);
+    }
   });
 
   test("only high|xhigh|max are permitted resume efforts (never medium, the grader's fixed value)", () => {
@@ -516,6 +580,18 @@ function scriptEnv(ctx, actions, extraEnv = {}) {
   return { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile, FAKE_CODEX_SCRIPT: JSON.stringify(actions), ...extraEnv };
 }
 
+// A healthy run must also WRITE the --output-last-message file: emitting both
+// authoritative events and exiting 0 WITHOUT writing it is now the distinct
+// "missing-output" failure (a real Codex run always writes it on success).
+// This helper splices the writeOutput action in just before the exit action,
+// so individual tests stay focused on the behavior they actually name.
+function withOutputWrite(ctx, actions, outputPath) {
+  const out = { type: "writeOutput", path: outputPath ?? join(ctx.dir, "output.json"), content: "{}" };
+  const exitIdx = actions.findIndex((a) => a.type === "exit");
+  if (exitIdx < 0) return [...actions, out];
+  return [...actions.slice(0, exitIdx), out, ...actions.slice(exitIdx)];
+}
+
 describe("runCodex — success path", () => {
   test("healthy run reports threadId, usage, finalOutputPath, and null failureCategory", async () => {
     const ctx = setupFakeCodex();
@@ -525,7 +601,7 @@ describe("runCodex — success path", () => {
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 50, output_tokens: 20, reasoning_output_tokens: 5 } }) },
         { type: "exit", code: 0 },
       ];
-      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, withOutputWrite(ctx, actions)) }));
       assert.equal(result.failureCategory, null);
       assert.equal(result.threadId, "0199a213-81c0-7800-8aa1-bbab2a035a53");
       assert.deepEqual(result.usage, { inputTokens: 100, cachedInputTokens: 50, outputTokens: 20, reasoningOutputTokens: 5 });
@@ -547,7 +623,7 @@ describe("runCodex — success path", () => {
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
-      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, withOutputWrite(ctx, actions)) }));
       assert.equal(result.failureCategory, null);
       const log = readFileSync(result.logPath, "utf8");
       assert.match(log, /models cache is stale/);
@@ -566,7 +642,7 @@ describe("runCodex — success path", () => {
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
-      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, withOutputWrite(ctx, actions)) }));
       assert.equal(result.failureCategory, null);
       assert.equal(result.threadId, "t1");
     } finally {
@@ -623,7 +699,7 @@ describe("runCodex — malformed JSONL and missing-completion (stdout-only rule)
         { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
         { type: "exit", code: 0 },
       ];
-      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, withOutputWrite(ctx, actions)) }));
       assert.equal(result.failureCategory, null, "the malformed rule is stdout-only; stderr is diagnostics only");
     } finally {
       cleanup(ctx.dir);
@@ -661,28 +737,64 @@ describe("runCodex — malformed JSONL and missing-completion (stdout-only rule)
   });
 
   test("partial lines are buffered until newline-complete before parsing", async () => {
-    // Drive the fake with a raw child process that writes a JSON line across
-    // two separate stdout writes, split mid-object, to prove readline (not
-    // ad hoc chunk parsing) buffers correctly.
+    // A genuine partial-write test: the `rawStdout` action writes a fragment
+    // with NO trailing newline, so each authoritative event arrives split
+    // across multiple separate stdout writes (and therefore, in practice,
+    // separate 'data' chunks with a flush delay between them). If the
+    // transport parsed chunks rather than newline-delimited lines, every one
+    // of these events would be seen as malformed JSON.
     const ctx = setupFakeCodex();
     try {
-      const line = JSON.stringify({ type: "thread.started", thread_id: "split-line-id" });
-      const splitAt = Math.floor(line.length / 2);
+      const started = JSON.stringify({ type: "thread.started", thread_id: "split-line-id" });
+      const completed = JSON.stringify({ type: "turn.completed", usage: { input_tokens: 7, cached_input_tokens: 3, output_tokens: 2, reasoning_output_tokens: 1 } });
+      const splitStart = Math.floor(started.length / 2);
+      const splitDone = Math.floor(completed.length / 2);
       const actions = [
-        // The fake always writes a full line + "\n" per action; to truly
-        // exercise partial-chunk buffering we rely on runCodex's own
-        // readline wiring being correct for ANY child (this fake writes
-        // complete lines), and separately unit-test parseCodexEvent's
-        // tolerance of being fed the same accumulator repeatedly (above).
-        // Here we assert the end-to-end happy path still resolves the full
-        // thread id even though it was written as one 210+ char line.
-        { type: "stdout", line },
-        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        // thread.started, split mid-object into two writes with a flush gap.
+        { type: "rawStdout", text: started.slice(0, splitStart) },
+        { type: "sleepMs", ms: 25 },
+        { type: "rawStdout", text: started.slice(splitStart) + "\n" },
+        // turn.completed, split mid-object as well — and this time the
+        // newline itself arrives in a third, separate write.
+        { type: "rawStdout", text: completed.slice(0, splitDone) },
+        { type: "sleepMs", ms: 25 },
+        { type: "rawStdout", text: completed.slice(splitDone) },
+        { type: "sleepMs", ms: 25 },
+        { type: "rawStdout", text: "\n" },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, withOutputWrite(ctx, actions)) }));
+      assert.equal(result.failureCategory, null, "split writes must not be seen as malformed");
+      assert.equal(result.threadId, "split-line-id");
+      assert.deepEqual(result.usage, { inputTokens: 7, cachedInputTokens: 3, outputTokens: 2, reasoningOutputTokens: 1 });
+      // Sanity: the fragments really were incomplete JSON on their own.
+      assert.throws(() => JSON.parse(started.slice(0, splitStart)));
+      assert.throws(() => JSON.parse(completed.slice(0, splitDone)));
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("a truncated final line fails the run and is never mistaken for a completed turn", async () => {
+    // Node's readline flushes any trailing incomplete buffer as one final
+    // 'line' when the stream ends, so a truncated last event DOES reach the
+    // parser — and, being unparseable JSON, is correctly categorized
+    // malformed-jsonl (the brief's rule: only unparseable JSON is malformed).
+    // What matters for safety is the pair of negatives: the run fails, and
+    // the truncated turn.completed is NOT credited as a completed turn, so
+    // no usage is fabricated from a half-received event.
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t1" }) },
+        { type: "rawStdout", text: '{"type":"turn.completed","usage":{"input_tokens":1' },
         { type: "exit", code: 0 },
       ];
       const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
-      assert.equal(result.threadId, "split-line-id");
-      assert.ok(splitAt > 0); // sanity: the line really was non-trivially long
+      assert.equal(result.failureCategory, "malformed-jsonl");
+      assert.equal(result.threadId, "t1", "thread evidence is preserved for mutation-safety");
+      assert.equal(result.usage, null, "a truncated turn.completed must never yield usage");
+      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
     } finally {
       cleanup(ctx.dir);
     }
@@ -772,7 +884,7 @@ describe("runCodex — resume cwd confinement", () => {
         resumeThreadId: "original-thread-id",
         timeoutMs: 5000,
         codexBin: ctx.fakeCodex,
-        env: scriptEnv(ctx, actions),
+        env: scriptEnv(ctx, withOutputWrite(ctx, actions, join(ctx.dir, "o.json"))),
       });
       assert.equal(result.failureCategory, null);
       const calls = recordedCalls(ctx.recordFile);
@@ -780,6 +892,9 @@ describe("runCodex — resume cwd confinement", () => {
       assert.equal(calls[0].cwd, originalWorktree, "child process cwd must be the exact original worktree, no fallback to the user checkout");
       assert.ok(!calls[0].argv.includes("-C"));
       assert.ok(!calls[0].argv.includes("--sandbox"));
+      // ...and the sandbox is nonetheless pinned, via the config key rather
+      // than the (nonexistent) resume sandbox flag.
+      assert.ok(calls[0].argv.includes("sandbox_mode=workspace-write"));
     } finally {
       cleanup(ctx.dir);
       cleanup(originalWorktree);
@@ -981,9 +1096,166 @@ describe("mutation-safe retry evidence", () => {
       ];
       const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
       assert.equal(result.failureCategory, "auth");
-      // "auth" is not in the grader's transient-retry set
-      // ("rate-limited"/"transport") — callers must never retry it.
-      assert.ok(!["rate-limited", "transport"].includes(result.failureCategory));
+      // The retry-eligible set is imported from codex.mjs, NOT re-declared as
+      // a literal here: this is a safety-relevant policy and Task 9's
+      // scheduler must consume the same shared symbol rather than
+      // re-deriving it from prose.
+      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("RETRYABLE_CATEGORIES — exported shared policy", () => {
+  test("is exactly {rate-limited, transport} and excludes every non-transient category", () => {
+    assert.deepEqual([...RETRYABLE_CATEGORIES].sort(), ["rate-limited", "transport"]);
+    for (const nonRetryable of [
+      "auth", "timeout", "malformed-jsonl", "missing-output",
+      "missing-thread-started", "missing-turn-completed", "nonzero-exit",
+    ]) {
+      assert.ok(!RETRYABLE_CATEGORIES.has(nonRetryable), `${nonRetryable} must never be retryable`);
+    }
+  });
+
+  test("a rate-limited grader failure is in the retryable set", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [{ type: "stderr", text: "429 too many requests\n" }, { type: "exit", code: 1 }];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      assert.equal(result.failureCategory, "rate-limited");
+      assert.ok(RETRYABLE_CATEGORIES.has(result.failureCategory));
+      assert.equal(result.threadId, null, "and no thread had started, so a fresh retry is structurally safe");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("missing-output — success is never reported for a file that was never written", () => {
+  test("both events emitted and exit 0, but no output file written, is a categorized failure", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      // Deliberately NOT wrapped in withOutputWrite: this is the exact
+      // scenario where the transport previously returned failureCategory:
+      // null plus a path to a nonexistent file, which Task 9 would then try
+      // to read the structured grade from.
+      const actions = [
+        { type: "stdout", line: JSON.stringify({ type: "thread.started", thread_id: "t1" }) },
+        { type: "stdout", line: JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 1, output_tokens: 1, reasoning_output_tokens: 1 } }) },
+        { type: "exit", code: 0 },
+      ];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions) }));
+      assert.equal(result.failureCategory, "missing-output");
+      assert.equal(result.finalOutputPath, null, "never hand back a path to a file that does not exist");
+      assert.equal(existsSync(join(ctx.dir, "output.json")), false);
+      assert.ok(!RETRYABLE_CATEGORIES.has(result.failureCategory));
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("when the output file IS written, finalOutputPath points at a file that really exists", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const result = await runCodex(freshWorkerArgs(ctx));
+      assert.equal(result.failureCategory, null);
+      assert.ok(existsSync(result.finalOutputPath), "the returned path must exist on disk");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("model gating — as strict as effort gating", () => {
+  test("SUPPORTED_MODELS is the closed supervisor-tier allowlist", () => {
+    assert.deepEqual([...SUPPORTED_MODELS], ["gpt-5.6-sol"]);
+  });
+
+  test("an off-allowlist model is rejected for fresh and resume argv alike", () => {
+    for (const model of ["gpt-3.5-turbo", "o3-mini", "gpt-4o", "claude-3", "gpt-5.6-sol-preview"]) {
+      assert.throws(() => buildFreshCodexArgs({
+        cwd: "/w", prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high", sandbox: "workspace-write", model,
+      }), CodexTransportError, `fresh must reject model ${model}`);
+      assert.throws(() => buildResumeCodexArgs({
+        threadId: "t", prompt: "p", schemaPath: "/s", outputPath: "/o", effort: "high", model,
+      }), CodexTransportError, `resume must reject model ${model}`);
+    }
+  });
+
+  test("an off-allowlist model is rejected pre-spawn by runCodex (fake never invoked)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      await assert.rejects(() => runCodex(freshWorkerArgs(ctx, { model: "gpt-3.5-turbo" })), CodexTransportError);
+      assert.equal(existsSync(ctx.recordFile), false, "fake Codex must never have been invoked");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+});
+
+describe("timeout bound is derived and can never be raised by input", () => {
+  test("a timeoutMs above the derived bound is rejected pre-spawn (fake never invoked)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      await assert.rejects(
+        () => runCodex(freshWorkerArgs(ctx, { effort: "high", timeoutMs: 86_400_000 })),
+        (err) => err instanceof CodexTransportError && /can never be raised by input/.test(err.message),
+      );
+      assert.equal(existsSync(ctx.recordFile), false);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("each call kind rejects anything above its own derived ceiling", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const cases = [
+        { label: "grader", opts: { sandbox: "read-only", effort: "medium" }, ceiling: 180_000 },
+        { label: "worker high", opts: { sandbox: "workspace-write", effort: "high" }, ceiling: 900_000 },
+        { label: "worker xhigh", opts: { sandbox: "workspace-write", effort: "xhigh" }, ceiling: 1_800_000 },
+        { label: "worker max", opts: { sandbox: "workspace-write", effort: "max" }, ceiling: 2_700_000 },
+        { label: "resume high", opts: { resumeThreadId: "t", effort: "high" }, ceiling: 900_000 },
+      ];
+      for (const c of cases) {
+        await assert.rejects(
+          () => runCodex(freshWorkerArgs(ctx, { ...c.opts, timeoutMs: c.ceiling + 1 })),
+          CodexTransportError,
+          `${c.label} must reject ${c.ceiling + 1}ms`,
+        );
+      }
+      assert.equal(existsSync(ctx.recordFile), false, "no spawn for any over-ceiling request");
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("omitting timeoutMs uses the derived bound, and the log records both derived and effective values", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const result = await runCodex(freshWorkerArgs(ctx, { timeoutMs: undefined }));
+      assert.equal(result.failureCategory, null);
+      const log = readFileSync(result.logPath, "utf8");
+      assert.match(log, /callKind: worker/);
+      assert.match(log, /derivedTimeoutMs: 900000/);
+      assert.match(log, /timeoutMs: 900000/);
+    } finally {
+      cleanup(ctx.dir);
+    }
+  });
+
+  test("lowering the bound is permitted (it can only ever cause an earlier timeout)", async () => {
+    const ctx = setupFakeCodex();
+    try {
+      const actions = [{ type: "ignoreSigterm" }, { type: "sleepMs", ms: 60_000 }, { type: "exit", code: 0 }];
+      const result = await runCodex(freshWorkerArgs(ctx, { env: scriptEnv(ctx, actions), timeoutMs: 100, killGraceMs: 100 }));
+      assert.equal(result.failureCategory, "timeout");
+      const log = readFileSync(result.logPath, "utf8");
+      // Evidence records BOTH: the ceiling that policy derived, and the
+      // (lower) bound actually applied to this run.
+      assert.match(log, /derivedTimeoutMs: 900000/);
+      assert.match(log, /timeoutMs: 100/);
     } finally {
       cleanup(ctx.dir);
     }
@@ -1054,6 +1326,44 @@ describe("parsePluginList / inspectSuperpowersSkills", () => {
   test("inspectSuperpowersSkills: rejects a missing source.path", () => {
     const result = inspectSuperpowersSkills({ source: { source: "local" } });
     assert.equal(result.ok, false);
+  });
+
+  test("inspectSuperpowersSkills: rejects a RELATIVE source.path rather than resolving it against cwd", () => {
+    // A relative path would be join()ed against process.cwd(), so the
+    // inventory check would run against the user's own checkout instead of
+    // the plugin's install directory — and could spuriously "pass" if four
+    // same-named directories happened to exist there.
+    for (const path of ["some/relative/dir", "./skills-parent", "../elsewhere", "skills"]) {
+      const result = inspectSuperpowersSkills({ source: { source: "local", path } });
+      assert.equal(result.ok, false, `relative path ${path} must be rejected`);
+      assert.equal(result.reason, "non-local-or-missing-source");
+    }
+  });
+
+  test("inspectSuperpowersSkills: a relative path is rejected even when the cwd-relative directories really exist", () => {
+    // Strongest form: build a real directory tree containing all four
+    // required skills, then reference it RELATIVELY from that same cwd. A
+    // cwd-resolving implementation would find all four and pass; the
+    // absolute-path requirement must reject it anyway.
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "relative-path-trap-")));
+    const pluginRel = "plugindir";
+    for (const skill of REQUIRED_SUPERPOWERS_SKILLS) {
+      mkdirSync(join(base, pluginRel, "skills", skill), { recursive: true });
+    }
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(base);
+      const result = inspectSuperpowersSkills({ source: { source: "local", path: pluginRel } });
+      assert.equal(result.ok, false, "a relative path must be rejected even when it would resolve successfully");
+      assert.equal(result.reason, "non-local-or-missing-source");
+      // And the absolute form of the very same directory is accepted, proving
+      // the rejection is about the path's form, not the tree's contents.
+      const absResult = inspectSuperpowersSkills({ source: { source: "local", path: join(base, pluginRel) } });
+      assert.equal(absResult.ok, true);
+    } finally {
+      process.chdir(originalCwd);
+      cleanup(base);
+    }
   });
 
   test("inspectSuperpowersSkills: detects a missing required skill directory", () => {
@@ -1131,6 +1441,92 @@ describe("checkCodexPrerequisites", () => {
       cleanup(ctx.dir);
       cleanup(pluginDir);
     }
+  });
+
+  test("a healthy environment reports resumeSupported: true", async () => {
+    const ctx = setupFakeCodex();
+    const pluginDir = mkdtempSync(join(tmpdir(), "plugin-fixture-"));
+    try {
+      const fixture = healthyPluginFixture(pluginDir);
+      const result = await checkCodexPrerequisites({
+        codexBin: ctx.fakeCodex,
+        env: { ...process.env, FAKE_CODEX_PLUGIN_JSON: JSON.stringify(fixture), FAKE_CODEX_RECORD: ctx.recordFile },
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.resumeSupported, true);
+      assert.deepEqual(result.missingResumeCapabilities, []);
+    } finally {
+      cleanup(ctx.dir);
+      cleanup(pluginDir);
+    }
+  });
+
+  // A resume-only capability gap must NOT collapse into a hard
+  // unsupported-codex-cli failure: fresh execution still works, and the brief
+  // documents a fresh-corrections fallback. Task 9 needs a first-class field
+  // to branch on rather than string-matching a prose message.
+  test("a resume-only capability gap degrades resumeSupported instead of hard-failing", async () => {
+    const ctx = setupFakeCodex();
+    const pluginDir = mkdtempSync(join(tmpdir(), "plugin-fixture-"));
+    // Strip --output-schema from `exec resume --help` only; `exec --help`
+    // keeps every capability, so fresh execution remains fully viable.
+    const broken = FAKE_CODEX.replace(
+      '    "Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]",\n    "Options:",\n    "  --json",\n    "  --output-schema <PATH>",',
+      '    "Usage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]",\n    "Options:",\n    "  --json",',
+    );
+    assert.notEqual(broken, FAKE_CODEX, "the resume-help fixture edit must actually apply");
+    writeFileSync(ctx.fakeCodex, broken, "utf8");
+    chmodSync(ctx.fakeCodex, 0o755);
+    try {
+      const fixture = healthyPluginFixture(pluginDir);
+      const result = await checkCodexPrerequisites({
+        codexBin: ctx.fakeCodex,
+        env: { ...process.env, FAKE_CODEX_PLUGIN_JSON: JSON.stringify(fixture), FAKE_CODEX_RECORD: ctx.recordFile },
+      });
+      assert.equal(result.ok, true, "fresh execution is still fully supported, so preflight must not hard-fail");
+      assert.equal(result.failureCategory, null);
+      assert.equal(result.resumeSupported, false);
+      assert.ok(result.missingResumeCapabilities.some((c) => c.includes("output-schema")));
+      // The hard-failure channel stays clean — the gap is reported only on
+      // the degraded channel.
+      assert.deepEqual(result.missingCapabilities, []);
+    } finally {
+      cleanup(ctx.dir);
+      cleanup(pluginDir);
+    }
+  });
+
+  test("a resume interface without -c (the sandbox-pin carrier) disables resume", async () => {
+    // The sandbox pin from Critical 1 rides on `-c`. A resume interface
+    // lacking it cannot be sandbox-pinned at all, so resume MUST be
+    // disabled rather than run unpinned.
+    const ctx = setupFakeCodex();
+    const pluginDir = mkdtempSync(join(tmpdir(), "plugin-fixture-"));
+    const broken = FAKE_CODEX.replace(
+      '    "  -m, --model <MODEL>",\n    "  -c, --config <KEY=VALUE>",\n    "  --last",',
+      '    "  -m, --model <MODEL>",\n    "  --last",',
+    );
+    assert.notEqual(broken, FAKE_CODEX, "the resume-help fixture edit must actually apply");
+    writeFileSync(ctx.fakeCodex, broken, "utf8");
+    chmodSync(ctx.fakeCodex, 0o755);
+    try {
+      const fixture = healthyPluginFixture(pluginDir);
+      const result = await checkCodexPrerequisites({
+        codexBin: ctx.fakeCodex,
+        env: { ...process.env, FAKE_CODEX_PLUGIN_JSON: JSON.stringify(fixture), FAKE_CODEX_RECORD: ctx.recordFile },
+      });
+      assert.equal(result.resumeSupported, false);
+      assert.ok(result.missingResumeCapabilities.some((c) => c.includes("config-override")));
+    } finally {
+      cleanup(ctx.dir);
+      cleanup(pluginDir);
+    }
+  });
+
+  test("early hard failures report resumeSupported: false rather than implying resume is usable", async () => {
+    const result = await checkCodexPrerequisites({ codexBin: join(tmpdir(), "definitely-does-not-exist-codex-binary") });
+    assert.equal(result.failureCategory, "missing-codex");
+    assert.equal(result.resumeSupported, false);
   });
 
   test("unsupported-codex-cli when a required exec --help flag is missing, listing the missing capability", async () => {
