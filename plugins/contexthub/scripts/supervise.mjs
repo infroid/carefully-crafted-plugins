@@ -76,6 +76,11 @@ const EVIDENCE_MAX_BYTES = 65536;
 
 const FINISH_CHOICES = new Set(["keep", "merge", "push", "pr", "discard"]);
 
+// Choices whose completion is verified against a real Git ref, and which are
+// therefore meaningless without one. See cmdChooseFinish for why "pr" is
+// deliberately excluded.
+const TARGET_REQUIRED_CHOICES = new Set(["merge", "push"]);
+
 const NEXT_COMMAND = {
   INITIALIZED: "grade",
   GRADING: "recover",
@@ -96,6 +101,20 @@ const NEXT_COMMAND = {
 };
 
 const RUNNING_PHASES = new Set([Phase.GRADING, Phase.WAVE_1_RUNNING, Phase.WAVE_2_RUNNING, Phase.VERIFYING]);
+
+// `next` must name a command that will actually work from here.
+//
+// A phase-only lookup is choice-blind: a `discard` run sitting in
+// FINISH_ACTION_PENDING was told `next: "complete-finish"`, which then
+// refuses with exit 2 because complete-finish is invalid for discard. The
+// only phase whose next step depends on more than the phase is
+// FINISH_ACTION_PENDING, where the recorded finish choice decides it.
+function nextCommandFor(run) {
+  if (run.phase === Phase.FINISH_ACTION_PENDING && run.finish?.choice === "discard") {
+    return "cleanup --mode discard (from the original repository)";
+  }
+  return NEXT_COMMAND[run.phase] ?? null;
+}
 
 // --------------------------------------------------------------------------
 // IO + errors
@@ -147,6 +166,24 @@ function requireArg(args, key, usage) {
   if (args[key] === undefined || args[key] === true) {
     throw new CliError(2, `missing required ${usage}`);
   }
+}
+
+// EVERY optional flag read goes through this, never `args[key]` directly.
+//
+// `parseFlags` records a flag with no following value as the BOOLEAN `true`
+// (`--request-file` with nothing after it). Passing that straight into
+// `path.resolve`/`Number` produced a TypeError (exit 1, "runtime error") or
+// a silent coercion — `Number(true)` is 1, so a bare `--wave` quietly meant
+// wave 1 — when both are argument errors that must map to exit 2. Returning
+// `null` for an absent flag and throwing for a valueless one makes the
+// whole class impossible to reintroduce at a new call site.
+function flagValue(args, key, usage) {
+  const v = args[key];
+  if (v === undefined) return null;
+  if (v === true) {
+    throw new CliError(2, `${usage} requires a value`);
+  }
+  return v;
 }
 
 // Reject symlinks, devices, and non-regular files outright (brief,
@@ -214,6 +251,28 @@ function isAncestorOf(cwd, ancestor, ref) {
 // Force-delete is ONLY ever performed by the supervisor (this CLI, never
 // Superpowers) and ONLY ever within this run's own branch namespace — the
 // prefix check is a hard backstop, not merely documentation.
+// A worktree whose DIRECTORY was removed out of band still holds a
+// registration under .git/worktrees, and git refuses `branch -D` for a
+// branch it believes is checked out there:
+//
+//   error: cannot delete branch '...' used by worktree at '...'
+//
+// That is the brief's own named "discard after integration-worktree
+// removal" scenario, and without a prune it is a permanent dead end:
+// every cleanup retry fails identically and complete-finish refuses a
+// discard choice, so the run can never reach a terminal phase.
+//
+// `git worktree prune` clears exactly those stale administrative entries.
+// It never touches a worktree whose directory still exists, so it cannot
+// discard live work — which is what makes it safe to run unconditionally
+// before the branch deletes rather than only on the error path.
+function pruneStaleWorktreeRegistrations(topLevel) {
+  const r = spawnSync("git", ["worktree", "prune"], { cwd: topLevel, encoding: "utf8" });
+  if (r.status !== 0) {
+    throw new GitError(`git worktree prune failed: ${(r.stderr || r.stdout || "").trim()}`);
+  }
+}
+
 function forceDeleteRunBranch(topLevel, runId, branch) {
   if (!branch.startsWith(`carefully-crafted/${runId}/`)) {
     throw new GitError(`forceDeleteRunBranch: refusing to delete a branch outside this run's namespace: "${branch}"`);
@@ -221,6 +280,37 @@ function forceDeleteRunBranch(topLevel, runId, branch) {
   const r = spawnSync("git", ["branch", "-D", branch], { cwd: topLevel, encoding: "utf8" });
   if (r.status !== 0) {
     throw new GitError(`git branch -D ${branch} failed: ${(r.stderr || r.stdout || "").trim()}`);
+  }
+}
+
+// THE CLI IS THE SAFETY BOUNDARY, NOT THE CALLER'S GOOD BEHAVIOUR.
+//
+// SKILL.md tells Claude to run discard from the original repository, but a
+// documented instruction is not an enforcement point: run from inside the
+// integration worktree, `cleanup --mode discard` happily deleted its own
+// cwd and reported COMPLETE. Since this command is the one supervisor-owned
+// destructive operation in the system, it refuses rather than trusting the
+// caller to have read the skill.
+//
+// Resolution is via realpath on both sides so a symlinked cwd cannot slip
+// past a string-prefix comparison.
+function assertCwdOutside(io, forbiddenPaths, context) {
+  let realCwd;
+  try {
+    realCwd = realpathSync(io.cwd());
+  } catch {
+    realCwd = path.resolve(io.cwd());
+  }
+  for (const p of forbiddenPaths) {
+    let realP;
+    try {
+      realP = realpathSync(p);
+    } catch {
+      continue; // already gone — nothing to be inside of
+    }
+    if (realCwd === realP || realCwd.startsWith(realP + path.sep)) {
+      throw new CliError(2, `${context}: refusing to run from inside "${realP}", which this command removes — run it from the original repository instead`);
+    }
   }
 }
 
@@ -759,6 +849,43 @@ async function recoverWave(ctx, wave) {
     taskId: r.taskId, status: "READY", commit: r.commit, receipt: readReceiptFor(ctx, wave, r.taskId),
   }));
 
+  // AMBIGUOUS DIRTY WORK BLOCKS; IT IS NEVER SILENTLY OVERWRITTEN.
+  //
+  // A task in `remaining` has, by construction, no verified receipt — but a
+  // leftover worktree with UNCOMMITTED changes means a worker did run and
+  // mutated it before the crash. Whether that work is worth keeping is not
+  // something the host can derive: there is no receipt to check it against
+  // and no commit to compare. Re-running the task would hand the same path
+  // to git.mjs's idempotency gate and let whatever it does decide the
+  // outcome, which is exactly the "infer success from an ambiguous state"
+  // failure this system refuses everywhere else. So it blocks with the
+  // paths named, and a human decides.
+  const ambiguous = [];
+  for (const t of remaining) {
+    const taskWorktreePath = worktreePaths.waveWorktreePath(wave, t.id);
+    if (!existsSync(taskWorktreePath)) continue;
+    let clean;
+    try {
+      clean = isWorktreeClean(taskWorktreePath);
+    } catch (err) {
+      ambiguous.push({ taskId: t.id, path: taskWorktreePath, reason: `unreadable: ${err.message}` });
+      continue;
+    }
+    if (!clean) {
+      ambiguous.push({ taskId: t.id, path: taskWorktreePath, reason: "uncommitted changes with no verified receipt" });
+    }
+  }
+  if (ambiguous.length > 0) {
+    const evidence = { stage: `wave-${wave}-recovery`, reason: "ambiguous-dirty-task-worktrees", ambiguous };
+    const { run, evidencePath } = await transitionToBlocked(
+      ctx, { type: "BLOCK" }, evidence,
+      `recovery found ${ambiguous.length} task worktree(s) with uncommitted work and no verified receipt`,
+    );
+    throw new CliError(1, `recover: ambiguous uncommitted work in ${ambiguous.map((a) => a.taskId).join(", ")} — inspect the named worktrees and either commit or discard that work before recovering`, {
+      run_id: runId, phase: run.phase, artifact: evidencePath, next: "recover",
+    });
+  }
+
   if (remaining.length === 0) {
     const fauxResult = {
       wave,
@@ -793,8 +920,9 @@ async function recoverWave(ctx, wave) {
 // --------------------------------------------------------------------------
 
 function readInitRequestBytes(args, io) {
-  if (args["request-file"]) {
-    return readOpaqueFile(path.resolve(args["request-file"]), REQUEST_MAX_BYTES, "--request-file");
+  const requestFile = flagValue(args, "request-file", "--request-file");
+  if (requestFile) {
+    return readOpaqueFile(path.resolve(requestFile), REQUEST_MAX_BYTES, "--request-file");
   }
   if (args.stdin) {
     const raw = io.stdin;
@@ -979,7 +1107,9 @@ async function cmdDecideApproval(args, io) {
 
 async function cmdRunWave(args, io) {
   requireArg(args, "run", "--run <run-id>");
-  const waveNum = Number(args.wave);
+  // flagValue, never `Number(args.wave)` directly: a bare `--wave` parses as
+  // boolean true and `Number(true)` is 1, which would silently run wave one.
+  const waveNum = Number(flagValue(args, "wave", "--wave"));
   if (waveNum !== 1 && waveNum !== 2) {
     throw new CliError(2, "run-wave: --wave must be 1 or 2 (no third wave is representable)");
   }
@@ -1023,15 +1153,16 @@ async function cmdAcceptReview(args, io) {
   // correction wave. Only every criterion reported SATISFIED proceeds
   // straight to verification.
   const hasGaps = reviewObj.acceptance.some((a) => a.status !== "SATISFIED");
+  const correctionGraphFile = flagValue(args, "correction-graph-file", "--correction-graph-file");
 
   // ---- BRANCH BEFORE BUILDING THE EVENT (carry-forward #1). ----
   if (hasGaps) {
-    if (!args["correction-graph-file"]) {
+    if (!correctionGraphFile) {
       throw new CliError(2, "accept-review: --correction-graph-file is required because the review reports a gap or uncertain item");
     }
     const nonSatisfiedAcceptanceIds = reviewObj.acceptance.filter((a) => a.status !== "SATISFIED").map((a) => a.id);
     const waveOneTasksById = Object.fromEntries(graph.tasks.map((t) => [t.id, t]));
-    const graphBytes = readOpaqueFile(path.resolve(args["correction-graph-file"]), GRAPH_MAX_BYTES, "--correction-graph-file");
+    const graphBytes = readOpaqueFile(path.resolve(correctionGraphFile), GRAPH_MAX_BYTES, "--correction-graph-file");
     let correctionGraph;
     try {
       correctionGraph = JSON.parse(graphBytes.toString("utf8"));
@@ -1057,7 +1188,7 @@ async function cmdAcceptReview(args, io) {
     return { run_id: runId, phase: run.phase, artifact: paths.correctionGraph, next: "run-wave --wave 2" };
   }
 
-  if (args["correction-graph-file"]) {
+  if (correctionGraphFile) {
     throw new CliError(2, "accept-review: --correction-graph-file must not be supplied when the review has no gaps");
   }
   // No-gap branch enters VERIFYING directly — a child-launch boundary just
@@ -1128,7 +1259,7 @@ async function cmdVerify(args, io) {
 async function cmdStatus(args, io) {
   requireArg(args, "run", "--run <run-id>");
   const ctx = await resolveRunContext(args.run, io);
-  return { run_id: ctx.runId, phase: ctx.run.phase, artifact: null, next: NEXT_COMMAND[ctx.run.phase] ?? null };
+  return { run_id: ctx.runId, phase: ctx.run.phase, artifact: null, next: nextCommandFor(ctx.run) };
 }
 
 // --------------------------------------------------------------------------
@@ -1159,10 +1290,11 @@ async function cmdRecover(args, io) {
   let workingCtx = ctx;
 
   if (run.phase === Phase.BLOCKED) {
-    if (!args["changed-condition-file"]) {
+    const changedConditionFile = flagValue(args, "changed-condition-file", "--changed-condition-file");
+    if (!changedConditionFile) {
       throw new CliError(2, "recover: --changed-condition-file is required to recover from BLOCKED");
     }
-    const bytes = readOpaqueFile(path.resolve(args["changed-condition-file"]), EVIDENCE_MAX_BYTES, "--changed-condition-file");
+    const bytes = readOpaqueFile(path.resolve(changedConditionFile), EVIDENCE_MAX_BYTES, "--changed-condition-file");
     mkdirSync(paths.changedConditionsDir, { recursive: true });
     const destPath = path.join(paths.changedConditionsDir, `condition-${Date.now()}.json`);
     writeLedgerArtifactExclusive(destPath, bytes);
@@ -1179,7 +1311,7 @@ async function cmdRecover(args, io) {
 
   const phase = workingCtx.run.phase;
   if (!RUNNING_PHASES.has(phase)) {
-    return { run_id: runId, phase, artifact: null, next: NEXT_COMMAND[phase] ?? null };
+    return { run_id: runId, phase, artifact: null, next: nextCommandFor(workingCtx.run) };
   }
 
   const priorPid = workingCtx.run.operation?.pid ?? null;
@@ -1226,9 +1358,35 @@ async function cmdChooseFinish(args, io) {
   } catch {
     // target stays null if the decision file is not JSON
   }
+
+  // THE TARGET IS WHAT MAKES complete-finish's CHECK REAL.
+  //
+  // `complete-finish` verifies a merge/push by proving the integration HEAD
+  // is reachable from the recorded target ref. With no target that check was
+  // skipped entirely, so "success" collapsed to "the worktree is clean and
+  // SOME file was passed as evidence" — a run could record `merge`, perform
+  // no merge at all, hand over a file saying "I promise I merged it", and
+  // reach COMPLETE with the target ref untouched. That defeats the whole
+  // two-phase finish gate, so the target is required up front, while the
+  // user is still being asked, rather than discovered missing at completion.
+  //
+  // `pr` is deliberately NOT in this set: its meaningful evidence is the
+  // remote PR, which this CLI cannot check without network access, so it
+  // stays on the bounded-evidence path by design.
+  const target = typeof decision.target === "string" && decision.target.trim().length > 0
+    ? decision.target.trim()
+    : null;
+  if (TARGET_REQUIRED_CHOICES.has(args.choice) && target === null) {
+    throw new CliError(2, `choose-finish: --choice "${args.choice}" requires a non-empty "target" (the ref the work is ${args.choice === "merge" ? "merged into" : "pushed to"}) in the decision file — without it complete-finish has nothing to verify the action against and would accept an unperformed action`);
+  }
+  // A self-referential target would make the ancestry check vacuously true:
+  // the integration HEAD is always reachable from its own branch.
+  if (target !== null && target === integrationBranchName(runId)) {
+    throw new CliError(2, `choose-finish: target "${target}" is this run's own integration branch — the completion check would be vacuously true against it`);
+  }
   writeLedgerArtifactExclusive(paths.finishChoice, bytes);
 
-  const run = await updateRun(repoInfo, runId, { type: "CHOOSE_FINISH", choice: args.choice, target: decision.target ?? null });
+  const run = await updateRun(repoInfo, runId, { type: "CHOOSE_FINISH", choice: args.choice, target });
   const next = args.choice === "keep"
     ? "complete-finish"
     : args.choice === "discard"
@@ -1258,11 +1416,20 @@ async function cmdCompleteFinish(args, io) {
   const detail = { choice: run.finish.choice, target: run.finish.target, cleanIntegrationWorktree: cleanNow };
 
   if (run.finish.choice !== "keep") {
-    if (!args["evidence-file"]) {
+    const evidenceFile = flagValue(args, "evidence-file", "--evidence-file");
+    if (!evidenceFile) {
       success = false;
       detail.reason = "missing-evidence-file";
+    } else if (TARGET_REQUIRED_CHOICES.has(run.finish.choice) && !run.finish.target) {
+      // Defense in depth. choose-finish now refuses to record a merge/push
+      // without a target, so this is unreachable for a run created after
+      // that fix — but it must never be possible to COMPLETE a merge/push
+      // whose action was never verified against a real ref, including for a
+      // run recorded before it or reached by any path not considered here.
+      success = false;
+      detail.reason = `choice "${run.finish.choice}" has no recorded target to verify against`;
     } else {
-      const evBytes = readOpaqueFile(path.resolve(args["evidence-file"]), EVIDENCE_MAX_BYTES, "--evidence-file");
+      const evBytes = readOpaqueFile(path.resolve(evidenceFile), EVIDENCE_MAX_BYTES, "--evidence-file");
       let evObj = {};
       try {
         evObj = JSON.parse(evBytes.toString("utf8"));
@@ -1320,6 +1487,9 @@ async function cmdCleanup(args, io) {
     if (decision.confirm !== "discard" || decision.run_id !== runId) {
       throw new CliError(2, 'cleanup --mode discard: --decision-file must contain {"confirm":"discard","run_id":"<this run>"}');
     }
+    // Discard removes the entire run worktree root, so the caller must not
+    // be standing anywhere inside it.
+    assertCwdOutside(io, [worktreePaths.root], "cleanup --mode discard");
     mkdirSync(paths.reportsDir, { recursive: true });
     const evidenceDest = path.join(paths.reportsDir, `cleanup-discard-decision-${Date.now()}.json`);
     writeLedgerArtifactExclusive(evidenceDest, decisionBytes);
@@ -1334,6 +1504,12 @@ async function cmdCleanup(args, io) {
       if (existsSync(wt.path)) {
         removeCleanWorktree({ repoInfo, path: wt.path, branchCheckCwd: repoInfo.topLevel });
       }
+    }
+    // Must happen AFTER the removals and BEFORE the branch deletes: it
+    // clears registrations both for worktrees just removed and for any
+    // whose directory had already vanished out of band.
+    pruneStaleWorktreeRegistrations(repoInfo.topLevel);
+    for (const wt of worktrees) {
       if (wt.branch) {
         forceDeleteRunBranch(repoInfo.topLevel, runId, wt.branch);
       }
@@ -1365,6 +1541,10 @@ async function cmdCleanup(args, io) {
 
   // Never the kept integration worktree/branch.
   const worktrees = listRunWorktrees({ repoInfo, runId }).filter((wt) => wt.path !== worktreePaths.integration);
+  // Same boundary as discard, scoped to exactly what this mode removes: the
+  // kept integration worktree is a legitimate cwd here, a doomed task
+  // worktree is not.
+  assertCwdOutside(io, worktrees.map((wt) => wt.path), "cleanup --mode post-complete");
   const removed = [];
   for (const wt of worktrees) {
     if (existsSync(wt.path) && isWorktreeClean(wt.path)) {
@@ -1372,6 +1552,7 @@ async function cmdCleanup(args, io) {
       removed.push(wt.path);
     }
   }
+  pruneStaleWorktreeRegistrations(repoInfo.topLevel);
   for (const wt of worktrees) {
     if (!wt.branch || !wt.head) continue;
     if (isCommitIntegrated({ repoInfo, ref: integrationBranchName(runId), commit: wt.head })) {

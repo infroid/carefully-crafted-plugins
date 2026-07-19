@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, existsSync,
-  symlinkSync, realpathSync,
+  symlinkSync, realpathSync, rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +22,7 @@ import { main } from "../../plugins/contexthub/scripts/supervise.mjs";
 import { Phase, getRunPaths, updateRun, loadRun } from "../../plugins/contexthub/scripts/supervise/state.mjs";
 import {
   inspectRepository, ensurePrivateWorktreeRoot, createTaskWorktree, inspectTaskChanges,
-  createTaskCommit, inspectTaskCommit, assertCommitOwnership,
+  createTaskCommit, inspectTaskCommit, assertCommitOwnership, isWorktreeClean,
 } from "../../plugins/contexthub/scripts/supervise/git.mjs";
 import { buildTaskReceipt } from "../../plugins/contexthub/scripts/supervise/scheduler.mjs";
 
@@ -331,9 +331,14 @@ describe("complete flow: gap then one correction wave", () => {
     assert.equal(wave2.code, 0, wave2.rawErr);
     assert.equal(wave2.out.phase, "WAVE_2_COMPLETE");
 
-    // A THIRD WAVE IS IMPOSSIBLE THROUGH THE CLI.
+    // A THIRD WAVE IS IMPOSSIBLE THROUGH THE CLI. `notEqual(code, 0)` alone
+    // would also pass on a *runtime* failure (exit 1) or on a refusal that
+    // nonetheless mutated the run, so assert the exact contract: an
+    // argument/contract refusal (exit 2) that leaves the phase untouched.
     const thirdWave = await call(["run-wave", "--run", runId, "--wave", "2"], integrationWorktree, wave2Env);
-    assert.notEqual(thirdWave.code, 0);
+    assert.equal(thirdWave.code, 2, thirdWave.rawErr);
+    const phaseAfterThirdWaveAttempt = await call(["status", "--run", runId], integrationWorktree, wave2Env);
+    assert.equal(phaseAfterThirdWaveAttempt.out.phase, "WAVE_2_COMPLETE", "a refused third wave must not mutate the run");
 
     const finalReviewPath = writeJson(root, "final-review.json", {
       acceptance: [
@@ -885,5 +890,388 @@ describe("finishing: discard", () => {
     assert.equal(cleanupRes.code, 0, cleanupRes.rawErr);
     assert.equal(cleanupRes.out.phase, "COMPLETE");
     assert.equal(existsSync(integrationWorktree), false, "the integration worktree must be removed by discard cleanup");
+  });
+
+  test("BRIEF-NAMED SCENARIO: discard completes even when the integration worktree DIRECTORY was already removed out of band", async () => {
+    // Brief lines 38 and 55: "discard after integration-worktree removal".
+    // Before the fix this was a permanent dead end — `git branch -D` failed
+    // with "used by worktree at ..." because the stale registration under
+    // .git/worktrees survived the directory, every cleanup retry failed
+    // identically, and complete-finish refuses a discard choice, so the run
+    // could never reach a terminal phase.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+
+    const decisionPath = writeJson(harness.root, "decision.json", { target: null });
+    const chooseRes = await call(["choose-finish", "--run", runId, "--choice", "discard", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+    assert.equal(chooseRes.code, 0, chooseRes.rawErr);
+
+    // The scenario: the directory is gone, but git still has it registered.
+    rmSync(integrationWorktree, { recursive: true, force: true });
+    assert.equal(existsSync(integrationWorktree), false);
+
+    const discardDecisionPath = writeJson(harness.root, "discard-decision.json", { confirm: "discard", run_id: runId });
+    const cleanupRes = await call(["cleanup", "--run", runId, "--mode", "discard", "--decision-file", discardDecisionPath], harness.repo, waveEnv);
+    assert.equal(cleanupRes.code, 0, cleanupRes.rawErr);
+    assert.equal(cleanupRes.out.phase, "COMPLETE");
+
+    // The run's branches are genuinely gone, not merely reported gone.
+    const branches = execFileSync("git", ["branch", "--list", `carefully-crafted/${runId}/*`], { cwd: harness.repo, encoding: "utf8" }).trim();
+    assert.equal(branches, "", `expected no surviving run branches, got: ${branches}`);
+  });
+
+  test("cleanup --mode discard refuses to run from inside the worktree tree it would delete", async () => {
+    // SKILL.md instructs Claude to run this from the original repository,
+    // but the CLI is the supervisor-owned safety boundary: an instruction is
+    // not an enforcement point. Before the fix this exited 0, deleted its
+    // own cwd, and reported COMPLETE.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const decisionPath = writeJson(harness.root, "decision.json", { target: null });
+    await call(["choose-finish", "--run", runId, "--choice", "discard", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+
+    const discardDecisionPath = writeJson(harness.root, "discard-decision.json", { confirm: "discard", run_id: runId });
+    const fromInside = await call(["cleanup", "--run", runId, "--mode", "discard", "--decision-file", discardDecisionPath], integrationWorktree, waveEnv);
+    assert.equal(fromInside.code, 2, fromInside.rawErr);
+    assert.match(fromInside.rawErr, /refusing to run from inside/);
+    assert.ok(existsSync(integrationWorktree), "the refused cleanup must not have deleted its own cwd");
+
+    // And the correct invocation still works afterward — the guard blocks
+    // the unsafe cwd, not the operation.
+    const fromRepo = await call(["cleanup", "--run", runId, "--mode", "discard", "--decision-file", discardDecisionPath], harness.repo, waveEnv);
+    assert.equal(fromRepo.code, 0, fromRepo.rawErr);
+    assert.equal(fromRepo.out.phase, "COMPLETE");
+  });
+});
+
+// --------------------------------------------------------------------------
+// choose-finish target requirement (Critical 1)
+// --------------------------------------------------------------------------
+
+describe("choose-finish: a verifiable target is mandatory for merge/push", () => {
+  test("merge without a target is refused at choose-finish, so an unperformed merge can never reach COMPLETE", async () => {
+    // Before the fix: choose-finish accepted a targetless merge, and
+    // complete-finish's only real check (`if (success && run.finish.target)`)
+    // was skipped, so "success" collapsed to "clean worktree + some file was
+    // passed". A run could claim a merge it never performed and reach
+    // COMPLETE with the target ref untouched.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    execFileSync("git", ["branch", "release"], { cwd: harness.repo });
+
+    const noTargetDecision = writeJson(harness.root, "decision.json", { note: "merge into release" });
+    const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", noTargetDecision], integrationWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+    assert.match(res.rawErr, /requires a non-empty "target"/);
+
+    // The run did not advance, so no completion is reachable from here.
+    const status = await call(["status", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(status.out.phase, "FINISH_PENDING");
+  });
+
+  test("push without a target is refused the same way", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const noTargetDecision = writeJson(harness.root, "decision.json", { note: "push it" });
+    const res = await call(["choose-finish", "--run", runId, "--choice", "push", "--decision-file", noTargetDecision], integrationWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+  });
+
+  test("a self-referential target (this run's own integration branch) is refused as vacuous", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const selfTarget = writeJson(harness.root, "decision.json", { target: `carefully-crafted/${runId}/integration` });
+    const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", selfTarget], integrationWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+    assert.match(res.rawErr, /vacuously true/);
+  });
+
+  test("keep and discard still need no target (they have no ref-verified action)", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const noTarget = writeJson(harness.root, "decision.json", { note: "just keep it" });
+    const res = await call(["choose-finish", "--run", runId, "--choice", "keep", "--decision-file", noTarget], integrationWorktree, waveEnv);
+    assert.equal(res.code, 0, res.rawErr);
+    assert.equal(res.out.phase, "FINISH_ACTION_PENDING");
+  });
+
+  test("a discard run's `next` names cleanup, not the complete-finish that would refuse it", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const decisionPath = writeJson(harness.root, "decision.json", { target: null });
+    await call(["choose-finish", "--run", runId, "--choice", "discard", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+    const status = await call(["status", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(status.out.phase, "FINISH_ACTION_PENDING");
+    assert.match(status.out.next, /cleanup --mode discard/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Valueless-flag handling (argument errors must map to exit 2, never 1)
+// --------------------------------------------------------------------------
+
+describe("valueless flags are argument errors (exit 2), never runtime errors (exit 1)", () => {
+  test("init --request-file with no value exits 2", async () => {
+    const harness = makeHarness();
+    const res = await call(["init", "--request-file"], harness.repo, harness.baseEnv);
+    assert.equal(res.code, 2, res.rawErr);
+    assert.match(res.rawErr, /requires a value/);
+  });
+
+  test("run-wave --wave with no value exits 2 rather than silently meaning wave 1", async () => {
+    // Number(true) === 1, so a bare `--wave` used to quietly run wave one.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapThroughWave1(harness);
+    const res = await call(["run-wave", "--run", runId, "--wave"], integrationWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+  });
+
+  test("recover --changed-condition-file with no value exits 2", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapThroughWave1(harness);
+    const evidencePath = writeJson(harness.root, "block-evidence.json", { note: "hold" });
+    await call(["block", "--run", runId, "--evidence-file", evidencePath], integrationWorktree, waveEnv);
+    const res = await call(["recover", "--run", runId, "--changed-condition-file"], integrationWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Crash recovery for the remaining running phases (Important 4)
+//
+// The brief requires a crash simulation for EACH running phase. GRADING and
+// WAVE_1_RUNNING are covered above; these cover VERIFYING and
+// WAVE_2_RUNNING. The wave-two case matters disproportionately because
+// recoverWave(ctx, 2) calls loadCorrectionGraph, which re-reads and
+// re-validates task-graph.json, review.json, and correction-graph.json
+// against run.wave1IntegrationHead — a path never exercised by the wave-one
+// recovery test.
+// --------------------------------------------------------------------------
+
+describe("recover: interrupted VERIFYING", () => {
+  test("a run crashed mid-verification recovers, re-runs the immutable command set, and reaches FINISH_PENDING", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapThroughWave1(harness);
+    const reviewPath = writeJson(harness.root, "review.json", {
+      acceptance: [{ id: "AC-01", status: "SATISFIED", evidence_paths: [], reason: "ok" }],
+      summary: "ok",
+    });
+    // The no-gap accept-review arms VERIFYING with a recorded operation.
+    const reviewRes = await call(["accept-review", "--run", runId, "--review-file", reviewPath], integrationWorktree, waveEnv);
+    assert.equal(reviewRes.code, 0, reviewRes.rawErr);
+    assert.equal(reviewRes.out.phase, "VERIFYING");
+
+    // Simulate the crash: overwrite the recorded operation's pid with a
+    // definitely-dead one, leaving the run stranded in VERIFYING exactly as
+    // a killed process would.
+    const repoInfo = inspectRepository(harness.repo);
+    await updateRun(repoInfo, runId, {
+      type: "RECOVER_INTERRUPTED",
+      reconciliation: { processes: true, receipts: true, worktrees: true, integrationHead: true },
+      operation: { pid: 999999999, startedAt: new Date().toISOString(), kind: "verify" },
+    });
+    assert.equal(loadRun(repoInfo, runId).phase, Phase.VERIFYING);
+
+    const recoverRes = await call(["recover", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(recoverRes.code, 0, recoverRes.rawErr);
+    assert.equal(recoverRes.out.phase, "FINISH_PENDING");
+    assert.ok(existsSync(recoverRes.out.artifact), "recovery must write the final receipt");
+  });
+
+  test("recover refuses while the recorded operation's process is still alive", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapThroughWave1(harness);
+    const reviewPath = writeJson(harness.root, "review.json", {
+      acceptance: [{ id: "AC-01", status: "SATISFIED", evidence_paths: [], reason: "ok" }],
+      summary: "ok",
+    });
+    await call(["accept-review", "--run", runId, "--review-file", reviewPath], integrationWorktree, waveEnv);
+
+    // This test process is, definitionally, alive.
+    const repoInfo = inspectRepository(harness.repo);
+    await updateRun(repoInfo, runId, {
+      type: "RECOVER_INTERRUPTED",
+      reconciliation: { processes: true, receipts: true, worktrees: true, integrationHead: true },
+      operation: { pid: process.pid, startedAt: new Date().toISOString(), kind: "verify" },
+    });
+    const res = await call(["recover", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(res.code, 1, res.rawErr);
+    assert.match(res.rawErr, /still running/);
+  });
+});
+
+describe("recover: interrupted WAVE_2_RUNNING", () => {
+  test("a correction wave crashed after its task committed recovers via loadCorrectionGraph without respawning the worker", async () => {
+    const harness = makeHarness({ "a.txt": "base-a\n", "b.txt": "base-b\n" });
+    const tasks = [
+      { id: "t1", wave: 1, objective: "widget a", depends_on: [], read_paths: [], write_paths: ["a.txt"], acceptance_ids: ["AC-01"], verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }], effort: "high", risk: "low" },
+      { id: "t2", wave: 1, objective: "widget b", depends_on: [], read_paths: [], write_paths: ["b.txt"], acceptance_ids: ["AC-02"], verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }], effort: "high", risk: "low" },
+    ];
+    const { root, runId, integrationWorktree, baseEnv } = await bootstrapThroughWave1(harness, { tasks });
+
+    const reviewPath = writeJson(root, "review.json", {
+      acceptance: [
+        { id: "AC-01", status: "SATISFIED", evidence_paths: [], reason: "ok" },
+        { id: "AC-02", status: "GAP", evidence_paths: [], reason: "gap" },
+      ],
+      summary: "one gap",
+    });
+    const wave1Head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    const correctionGraphPath = writeJson(root, "correction-graph.json", {
+      version: 1, run_id: runId, wave: 2, base_commit: wave1Head, source_review: "review.json",
+      tasks: [{
+        id: "t2-fix", objective: "fix b", depends_on: [], read_paths: [], write_paths: ["b.txt"],
+        acceptance_ids: ["AC-02"],
+        verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }],
+        effort: "high", risk: "low", source_task_id: "t2", session_policy: "fresh",
+      }],
+    });
+    const acceptGap = await call(["accept-review", "--run", runId, "--review-file", reviewPath, "--correction-graph-file", correctionGraphPath], integrationWorktree, baseEnv);
+    assert.equal(acceptGap.code, 0, acceptGap.rawErr);
+    assert.equal(acceptGap.out.phase, "REVIEWED");
+
+    // Reproduce a crashed wave two: the correction task's commit genuinely
+    // exists (built through git.mjs primitives, never through run-wave), its
+    // receipt is on disk, and run.json is stranded in WAVE_2_RUNNING with a
+    // dead pid.
+    const repoInfo = inspectRepository(harness.repo);
+    const paths = getRunPaths(repoInfo, runId);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+    const correctionTask = { id: "t2-fix", write_paths: ["b.txt"], acceptance_ids: ["AC-02"] };
+
+    const wt = createTaskWorktree({ repoInfo, runId, worktreePaths, wave: 2, taskId: correctionTask.id, baseCommit: wave1Head });
+    writeFileSync(join(wt.path, "b.txt"), "corrected-by-t2-fix\n");
+    const changes = inspectTaskChanges({ worktreePath: wt.path, baseCommit: wave1Head, writePaths: correctionTask.write_paths });
+    assert.ok(changes.ok, `inspectTaskChanges failed: ${changes.reason}`);
+    const commitInfo = createTaskCommit({ repoInfo, worktreePath: wt.path, baseCommit: wave1Head, writePaths: correctionTask.write_paths, runId, taskId: correctionTask.id, expectedFingerprint: changes.fingerprint });
+    const ownership = assertCommitOwnership({ worktreePath: wt.path, baseCommit: wave1Head, commit: commitInfo.commit, writePaths: correctionTask.write_paths, expectedFingerprint: changes.fingerprint });
+    const receipt = buildTaskReceipt({
+      taskId: correctionTask.id,
+      workerOutcome: { threadId: "0199a213-81c0-7800-8aa1-bbab2a035a53", usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1, reasoningOutputTokens: 0 }, processExitCode: 0 },
+      commit: commitInfo.commit, changedFiles: ownership.files, ownershipValid: true,
+      hostVerification: [{ id: "ok", status: "PASS", exitCode: 0, logPath: null }],
+      report: { status: "DONE", summary: "fixed", acceptance: [{ id: "AC-02", status: "PASS", evidence: "e" }], verification: [{ id: "ok", status: "PASS", summary: "ok" }], concerns: [], blockers: [] },
+    });
+    mkdirSync(paths.receiptsDir, { recursive: true });
+    writeFileSync(join(paths.receiptsDir, "wave-2-t2-fix.json"), JSON.stringify(receipt, null, 2));
+
+    await updateRun(repoInfo, runId, { type: "RUN_WAVE_2", operation: { pid: 999999999, startedAt: new Date().toISOString(), kind: "wave-2" } });
+    assert.equal(loadRun(repoInfo, runId).phase, Phase.WAVE_2_RUNNING);
+
+    const recordPath = join(root, "codex-record-w2.jsonl");
+    const recoverRes = await call(["recover", "--run", runId], integrationWorktree, { ...baseEnv, FAKE_CODEX_RECORD: recordPath });
+    assert.equal(recoverRes.code, 0, recoverRes.rawErr);
+    assert.equal(recoverRes.out.phase, "WAVE_2_COMPLETE");
+    assert.equal(existsSync(recordPath), false, "recovering a completed correction receipt must not respawn the worker");
+
+    // The correction commit is genuinely on the integration branch.
+    const trailerHits = execFileSync("git", ["log", "--format=%H", "--grep", `cherry picked from commit ${commitInfo.commit}`, "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    assert.ok(trailerHits.length > 0, "the correction commit should be integrated via cherry-pick");
+  });
+});
+
+// --------------------------------------------------------------------------
+// Ambiguous dirty work blocks recovery (Important 5)
+// --------------------------------------------------------------------------
+
+describe("recover: ambiguous dirty task worktrees", () => {
+  test("a leftover task worktree with uncommitted work and NO receipt blocks recovery instead of being silently re-run", async () => {
+    const harness = makeHarness({ "a.txt": "base-a\n", "b.txt": "base-b\n" });
+    const tasks = [
+      { id: "t1", wave: 1, objective: "widget a", depends_on: [], read_paths: [], write_paths: ["a.txt"], acceptance_ids: ["AC-01"], verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }], effort: "high", risk: "low" },
+      { id: "t2", wave: 1, objective: "widget b", depends_on: [], read_paths: [], write_paths: ["b.txt"], acceptance_ids: ["AC-02"], verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }], effort: "high", risk: "low" },
+    ];
+
+    const requestPath = join(harness.root, "request.md");
+    writeFileSync(requestPath, "hi\n");
+    const initRes = await call(["init", "--request-file", requestPath], harness.repo, harness.baseEnv);
+    const runId = initRes.out.run_id;
+    await call(["grade", "--run", runId], harness.repo, harness.baseEnv);
+    const integrationWorktree = initRes.out.integration_worktree;
+
+    const planRelPath = "docs/superpowers/plans/plan.md";
+    mkdirSync(join(integrationWorktree, "docs/superpowers/plans"), { recursive: true });
+    writeFileSync(join(integrationWorktree, planRelPath), "# plan\n");
+    execFileSync("git", ["add", "-A"], { cwd: integrationWorktree });
+    execFileSync("git", ["commit", "-qm", "plan"], { cwd: integrationWorktree });
+    const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    const graphPath = writeJson(harness.root, "graph.json", {
+      version: 1, run_id: runId, base_commit: baseCommit,
+      complexity_review: { grader_score: 3, claude_score: 3, override_reason: null },
+      acceptance: [{ id: "AC-01", text: "x" }, { id: "AC-02", text: "y" }], approval_flags: [],
+      final_verification: [{ id: "fv", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }],
+      tasks,
+    });
+    await call(["accept-plan", "--run", runId, "--plan-file", join(integrationWorktree, planRelPath), "--graph-file", graphPath], integrationWorktree, harness.baseEnv);
+
+    const repoInfo = inspectRepository(harness.repo);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+
+    // t2 crashed mid-flight: its worktree exists with UNCOMMITTED changes
+    // and there is no receipt for it — the host cannot tell whether that
+    // work is worth keeping.
+    const wt = createTaskWorktree({ repoInfo, runId, worktreePaths, wave: 1, taskId: "t2", baseCommit });
+    writeFileSync(join(wt.path, "b.txt"), "half-finished work from a crashed worker\n");
+    assert.equal(isWorktreeClean(wt.path), false, "fixture must genuinely be dirty");
+
+    await updateRun(repoInfo, runId, { type: "RUN_WAVE_1", operation: { pid: 999999999, startedAt: new Date().toISOString(), kind: "wave-1" } });
+
+    const recordPath = join(harness.root, "codex-record-ambiguous.jsonl");
+    const res = await call(["recover", "--run", runId], integrationWorktree, { ...harness.baseEnv, FAKE_CODEX_RECORD: recordPath });
+    assert.equal(res.code, 1, res.rawErr);
+    assert.equal(res.out.phase, "BLOCKED");
+    assert.match(res.rawErr, /ambiguous uncommitted work/);
+    assert.match(res.rawErr, /t2/);
+    assert.equal(existsSync(recordPath), false, "ambiguous dirty work must block BEFORE dispatching any worker");
+    // The half-finished work is preserved, not destroyed.
+    assert.equal(readFileSync(join(wt.path, "b.txt"), "utf8"), "half-finished work from a crashed worker\n");
+  });
+
+  test("a CLEAN leftover task worktree with no receipt is not ambiguous — recovery proceeds and re-runs it", async () => {
+    // The negative control: this proves the gate keys on dirtiness, not
+    // merely on the worktree existing, so it cannot block every recovery.
+    const harness = makeHarness({ "a.txt": "base-a\n", "b.txt": "base-b\n" });
+    const tasks = [
+      { id: "t1", wave: 1, objective: "widget a", depends_on: [], read_paths: [], write_paths: ["a.txt"], acceptance_ids: ["AC-01"], verify: [{ id: "ok", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }], effort: "high", risk: "low" },
+    ];
+    const requestPath = join(harness.root, "request.md");
+    writeFileSync(requestPath, "hi\n");
+    const initRes = await call(["init", "--request-file", requestPath], harness.repo, harness.baseEnv);
+    const runId = initRes.out.run_id;
+    await call(["grade", "--run", runId], harness.repo, harness.baseEnv);
+    const integrationWorktree = initRes.out.integration_worktree;
+
+    const planRelPath = "docs/superpowers/plans/plan.md";
+    mkdirSync(join(integrationWorktree, "docs/superpowers/plans"), { recursive: true });
+    writeFileSync(join(integrationWorktree, planRelPath), "# plan\n");
+    execFileSync("git", ["add", "-A"], { cwd: integrationWorktree });
+    execFileSync("git", ["commit", "-qm", "plan"], { cwd: integrationWorktree });
+    const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    const graphPath = writeJson(harness.root, "graph.json", {
+      version: 1, run_id: runId, base_commit: baseCommit,
+      complexity_review: { grader_score: 3, claude_score: 3, override_reason: null },
+      acceptance: [{ id: "AC-01", text: "x" }], approval_flags: [],
+      final_verification: [{ id: "fv", argv: ["node", "-e", "process.exit(0)"], cwd: ".", requires_approval_ids: [] }],
+      tasks,
+    });
+    await call(["accept-plan", "--run", runId, "--plan-file", join(integrationWorktree, planRelPath), "--graph-file", graphPath], integrationWorktree, harness.baseEnv);
+
+    const repoInfo = inspectRepository(harness.repo);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+    // Worktree exists but is CLEAN — a worker that was killed before writing
+    // anything. Nothing ambiguous about that.
+    const wt = createTaskWorktree({ repoInfo, runId, worktreePaths, wave: 1, taskId: "t1", baseCommit });
+    assert.equal(isWorktreeClean(wt.path), true);
+
+    await updateRun(repoInfo, runId, { type: "RUN_WAVE_1", operation: { pid: 999999999, startedAt: new Date().toISOString(), kind: "wave-1" } });
+
+    const waveEnv = {
+      ...harness.baseEnv,
+      FAKE_TASK_FILE_MAP: JSON.stringify({ t1: "a.txt" }),
+      FAKE_TASK_ACCEPTANCE_MAP: JSON.stringify({ t1: ["AC-01"] }),
+    };
+    const res = await call(["recover", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(res.code, 0, res.rawErr);
+    assert.equal(res.out.phase, "WAVE_1_COMPLETE");
   });
 });
