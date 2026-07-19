@@ -493,7 +493,14 @@ const DIRECT_UNSAFE_COMMANDS = new Set(["rm", "sudo", "curl", "wget", "doas", "s
 
 function basenameOf(p) {
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return idx >= 0 ? p.slice(idx + 1) : p;
+  const base = idx >= 0 ? p.slice(idx + 1) : p;
+  // Git-for-Windows (and Windows generally) ships bash.exe/sh.exe alongside
+  // cmd.exe/powershell.exe/pwsh.exe -- SHELL_INTERPRETERS already lists the
+  // latter three explicitly, so Windows was already in scope, but without
+  // this strip "bash.exe"/"sh.exe" resolve to a basename the denylist never
+  // matches and bypass it entirely. Stripping here (not just in
+  // SHELL_INTERPRETERS) fixes every denylist that consults basenameOf.
+  return base.replace(/\.exe$/i, "");
 }
 
 function assertSafeVerificationArgv(argv, context) {

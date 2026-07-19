@@ -128,10 +128,13 @@ export function lintOne(filePath) {
   }
 
   // Manual-only vs model-invocable is a native-frontmatter fact. Setting
-  // `disable-model-invocation: true` removes the skill's name/description
-  // from Claude's always-on context and disables automatic invocation
+  // `disable-model-invocation: true` defers the skill's larger body cost
+  // (350 tok-2k) until invocation and disables automatic invocation
   // entirely — the skill runs only when the user explicitly invokes it,
-  // matching current Claude Code platform behavior.
+  // matching current Claude Code platform behavior. It does NOT remove
+  // the skill's name/description from Claude's always-on context:
+  // measured manual-only skills carry ~60-100 tok always-on, the same
+  // order as model-invocable ones.
   const manualOnly = classifyInvocation(frontmatter, findings);
 
   // description

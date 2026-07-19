@@ -44,12 +44,58 @@ const REJECTED_STRINGS = Object.freeze([
   "nanobanana mcp",
   "software lifecycle",
   "task triage",
+  // Task 13 Step 5 measured every manual-only skill at ~60-100 tok
+  // always-on -- statistically indistinguishable from the two
+  // model-invocable skills' ~80-90 tok. `disable-model-invocation: true`
+  // defers the skill BODY's cost (350 tok-2k) until invocation and blocks
+  // automatic invocation; it does not remove the name/description from
+  // Claude's always-on context. The plan (line 1908) explicitly forbids
+  // documenting it as removing that context. These three needles pin the
+  // exact false phrasings the whole-branch review found live on
+  // README.md, quality-bar.md, and tools/lint-skill.mjs -- each stays a
+  // single, unwrapped line in its source so a plain substring match
+  // (no markdown/whitespace normalization here, unlike the spec-coverage
+  // guard above) still catches it.
+  "zero claude context cost",
+  "always-on context entirely",
+  "always-on context and disables automatic invocation",
+  // Corpus-widening additions (final whole-branch review, item 4):
+  // quality-bar.md was in NO scanned corpus until rootMarkdownPages() was
+  // added above, and had gone stale on exactly these terms -- the v5 "forge"
+  // plugin prefix (renamed to "contexthub" in 5.0.0), the retired
+  // playwright/veo/longctx capability skills used as bare naming-convention
+  // exemplars (no slash-command prefix, so the existing "/agy:veo" etc.
+  // needles never matched them), and the "(context-hub:...)" description
+  // prefix that item 6 strips from eight skills (no plugin named
+  // "context-hub" has ever existed in this marketplace).
+  "forge",
+  "playwright",
+  "veo",
+  "longctx",
+  "context-hub:",
 ]);
+
+// Needles that are bare alphanumeric words (no "/", ":", ".", "-", or space)
+// are matched at WORD BOUNDARIES, not as a raw substring: "veo" as a plain
+// `.includes()` needle would false-positive on ordinary identifiers like
+// `waveOutcome`/`waveOneTasksById`, which are common in this codebase and
+// contain the exact character sequence "veo". Word-boundary matching still
+// catches every real-world shape that mattered ("forge:spec", "/agy:veo",
+// standalone "veo" in prose, `veo`/backticked veo) because ':', '`', '/',
+// whitespace, and string edges are all non-word characters and therefore
+// still produce a `\b` on either side of the bare word. Needles that already
+// contain punctuation ("/codex:playwright", "gpt-5.5", multi-word phrases,
+// "context-hub:") are NOT pure words, so they keep the original plain
+// substring behavior unchanged -- this only tightens the newly-added bare
+// words, it does not loosen anything that existed before.
+const BARE_WORD_RE = /^[a-z0-9]+$/;
 
 /** Returns the subset of REJECTED_STRINGS present in `text` (case-insensitive). */
 function findRejected(text) {
   const lower = text.toLowerCase();
-  return REJECTED_STRINGS.filter((needle) => lower.includes(needle));
+  return REJECTED_STRINGS.filter((needle) =>
+    BARE_WORD_RE.test(needle) ? new RegExp(`\\b${needle}\\b`, "i").test(text) : lower.includes(needle)
+  );
 }
 
 function readFile(relPath) {
@@ -362,6 +408,30 @@ function rootHtmlPages() {
     .sort();
 }
 
+/**
+ * Root-level markdown docs OTHER than README.md, e.g. quality-bar.md.
+ *
+ * README.md is deliberately excluded here: it already has its own far more
+ * granular, migration-section-aware exemption tests above (see "Exemption
+ * 1"). Folding it into this blanket denylist-scan too would spuriously flag
+ * its own intentional migration-section content, which is legitimate there
+ * and tested for elsewhere -- not a coverage gap.
+ *
+ * Before this function existed, quality-bar.md (and any other root .md file)
+ * was in NO scanned corpus at all -- final whole-branch review found it had
+ * gone stale (forge/playwright/veo/longctx examples, a "triage (when
+ * shipped)" bullet, a false "every delegation" universal) with nothing
+ * catching it. This closes that hole structurally: any current or future
+ * root markdown file other than README.md is scanned by default.
+ */
+function rootMarkdownPages() {
+  return fs
+    .readdirSync(REPO_ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".md") && e.name !== "README.md")
+    .map((e) => e.name)
+    .sort();
+}
+
 function walkFiles(dir) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
@@ -406,6 +476,13 @@ function scanCorpus() {
     files.add(f);
   }
 
+  // Root markdown docs OTHER than README.md (e.g. quality-bar.md), globbed
+  // rather than named for the same reason as rootHtmlPages() above -- see
+  // rootMarkdownPages()'s doc comment for why README.md itself is excluded.
+  for (const name of rootMarkdownPages()) {
+    files.add(path.join(REPO_ROOT, name));
+  }
+
   return [...files].filter((f) => fs.existsSync(f));
 }
 
@@ -446,6 +523,15 @@ test("the scan actually visits the plugin/tooling/website corpus (non-vacuous)",
   assert.ok(
     relFiles.some((f) => f.startsWith("tools/") && f.endsWith(".mjs")),
     "scan must include tools/*.mjs"
+  );
+  assert.ok(
+    relFiles.includes("quality-bar.md"),
+    "scan must include quality-bar.md -- it was in NO scanned corpus before this widening"
+  );
+  assert.ok(
+    !relFiles.includes("README.md"),
+    "README.md must stay OUT of this blanket scan -- it has its own dedicated, migration-section-aware " +
+      "exemption tests above, which this corpus does not replicate"
   );
   // Removed skill directories genuinely do not exist, so the scan cannot
   // (and must not) find them -- this pins that assumption rather than

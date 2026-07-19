@@ -89,8 +89,11 @@ review, verification, branch-finishing — is delegated to the corresponding
 Superpowers skill; `contexthub` never re-implements it.
 
 Both `contexthub` skills are slash-command only and manual-invocation gated
-(`disable-model-invocation: true`) — zero Claude context cost until you
-explicitly run them.
+(`disable-model-invocation: true`) — that defers each skill's larger body
+cost until you explicitly run it and blocks automatic invocation. It does
+not remove the skill's name/description from Claude's always-on context;
+measured manual-only skills carry ~60–100 tok always-on, the same order as
+model-invocable ones.
 
 ## Install
 
