@@ -5,108 +5,92 @@
 
 A small, opinionated set of multi-agent plugins for Claude Code. Two
 single-agent bridges — `codex` (OpenAI Codex) and `agy` (Google
-Antigravity) — plus `contexthub`, the multi-agent hub that ties Claude,
-codex, and agy together across a software lifecycle, token-efficient task
-triage, and the Delphi converge debate. Three plugins, deliberately
-lightweight by construction.
+Antigravity) — plus `contexthub`, the multi-agent hub for cross-provider
+convergence and token-efficient Claude supervision of Codex workers. Three
+plugins, ten skills, deliberately lightweight by construction.
 
-`contexthub` works with Claude alone; `codex` and `agy` are optional
-collaborators that each skill uses when present. Every contexthub skill
-degrades gracefully — it detects which of Claude, codex, and agy are
-installed and runs the richest flow available, falling back to Claude-solo
-(with a note) rather than failing.
+Superpowers provides the development methodology. Carefully Crafted
+provides Codex/Agy bridges, explicit cross-provider convergence, and
+token-efficient Claude supervision of Codex workers.
 
 ## What you can delegate
 
 ### `codex` — OpenAI Codex CLI
 
-Codex CLI fills several capability gaps from Claude Code:
+Codex CLI fills capability gaps from Claude Code:
 
 - Image generation (`gpt-image-2` via Codex's built-in `$imagegen`)
-- Hard reasoning at high effort
-- Code review and refactoring
-- Headless browser automation (Playwright)
+- Hard reasoning at xhigh effort (GPT-5.6 Sol)
+- An independent, read-only code review on explicit request
 - Session resume across follow-ups
 - Raw `codex exec` passthrough
+- Optional, explicit bridge setup
 
 ```
 /codex:imagegen   generate a 256x256 todo app icon
 /codex:reason     solve this dynamic programming problem ...
 /codex:review     audit src/auth for security bugs
-/codex:playwright scrape product titles from https://example.com/store
-/codex:exec       <any raw prompt to codex>
 /codex:resume     <follow-up for the most recent Codex session>
+/codex:exec       <any raw prompt to codex>
+/codex:setup      optional — copy editable defaults into this repo, re-verify the Codex CLI
 ```
+
+Only `/codex:imagegen` and `/codex:reason` auto-trigger from natural
+language; the other four are slash-command only. `codex` is an optional,
+separately-installed plugin — install it if you want `/codex:*` commands.
+`/contexthub:supervise` talks to Codex directly through its own scripts and
+does not require this plugin.
 
 ### `agy` — Google Antigravity CLI
 
-Antigravity's terminal coding agent (`agy`, which replaced Gemini CLI)
-brings capabilities Claude Code lacks:
+Antigravity's terminal coding agent (`agy`) is a narrow two-skill bridge:
 
-- 1M-token long-context analysis on Gemini 3 Pro (up to 2M enterprise) —
-  roughly 5× what Claude Code can hold
-- Image generation **and** editing via Nano Banana (Gemini image models):
-  text→image plus sequential **story**/multi-scene, natural-language **edit**,
-  photo **restore**, **icon**, seamless **pattern**, and **diagram** — through
-  the `nanobanana` MCP backend, with an agy-direct fallback for simple one-offs
-- Video generation via Veo
+- Nano Banana text-to-image generation through the authenticated `agy` CLI
 - Raw `agy -p` passthrough
 
 ```
-/agy:longctx     audit @src/ and @packages/ for callsites that bypass requireAuth
-/agy:nanobanana  a four-panel story of a seed growing into a tree
-/agy:setup       wire up the Nano Banana MCP backend (explicit, collaborative)
-/agy:veo         generate a 6-second product demo showing the hero feature
+/agy:nanobanana  a poster of a lighthouse at dusk, warm palette
 /agy:exec        <any raw prompt to agy>
 ```
 
-The richer Nano Banana capabilities (story, edit, restore, icon, pattern,
-diagram) run through an MCP server that you wire into Claude Code **explicitly**
-via `/agy:setup` — nothing installs or touches your API key implicitly. Until
-then, `/agy:nanobanana` still does simple generation through agy directly.
+Nano Banana no longer has a wired multi-tool image backend — there is no
+story/multi-scene generation, natural-language editing, photo restoration,
+icon-set, pattern, or diagram tooling here anymore. It is plain
+text-to-image only, generated directly through the authenticated `agy` CLI,
+and may require access or billing for whichever image model your
+Antigravity account is configured with. For a first-choice default image
+generator, or for any of the retired capabilities, prefer `/codex:imagegen`.
+
+Both `agy` skills are slash-command only.
 
 ### `contexthub` — the multi-agent hub
 
-The hub that ties Claude, Codex, and Antigravity together: a full software
-lifecycle, token-efficient task triage, and the Delphi converge debate.
-Every skill degrades gracefully — it runs the richest flow available across
-whichever of {Claude, codex, agy} are installed, and falls back to
-Claude-solo (with a note) rather than failing.
-
-The software lifecycle — seven phases that route every step to the
-strongest specialist available. What Superpowers does, with up to three
-minds:
+The hub ties Claude, Codex, and Antigravity together for two things
+Superpowers does not do on its own: cross-provider debate, and bounded
+external-worker execution.
 
 ```
-/contexthub:spec   <rough idea>      # spec refinement, debate-aware
-/contexthub:plan   <spec path>       # plan + codex stress-test + agy coverage
-/contexthub:tdd    <plan path>       # RED-GREEN-REFACTOR; codex on stuck subproblems
-/contexthub:review <branch>          # three-way: Claude + codex + agy
-/contexthub:verify <branch>          # tests + playwright + blast-radius scan
-/contexthub:debug  <symptom>         # triangulate root cause across the agents
-/contexthub:ship   <hint>            # commit message, retro, push (with consent)
+/contexthub:converge  [--full] <question>   # cross-provider debate: Claude + Codex + Antigravity
+/contexthub:supervise <task>                # Claude plans/reviews; isolated Codex workers implement
 ```
 
-Each phase writes an artifact to
-`docs/carefully-crafted-plugins/lifecycle/<phase>/` for a full audit trail.
+`/contexthub:converge` stages a short cross-provider debate — independent
+answers by default, full mutual critique and refinement with `--full` — and
+produces consensus, disagreements, and a recommendation. It writes nothing
+to disk.
 
-Token-efficient task triage — grade a task low/medium/hard before
-delegating. The codex bridge defaults to `medium` reasoning effort instead
-of `xhigh`; triage escalates only when difficulty warrants it. Spend the
-big effort where it matters; save tokens on the rest.
+`/contexthub:supervise` is the token-efficient execution engine: Claude
+plans (via Superpowers), grades the task, and reviews; isolated GPT-5.6 Sol
+Codex workers implement in their own worktrees and report back compact
+evidence, never their full transcripts. At most one correction wave runs
+before Claude accepts the final result and, with your consent, finishes the
+branch. Every methodology step — brainstorming, planning, TDD, debugging,
+review, verification, branch-finishing — is delegated to the corresponding
+Superpowers skill; `contexthub` never re-implements it.
 
-```
-/contexthub:triage audit src/auth.ts for race conditions
-```
-
-The Delphi converge debate — stage a systematic four-phase debate
-(independent answers → mutual critique → refinement → synthesis) among the
-installed agents on a single hard prompt. Converges on a final response
-that surfaces consensus and remaining disagreements.
-
-```
-/contexthub:converge should we move auth from session cookies to JWTs?
-```
+Both `contexthub` skills are slash-command only and manual-invocation gated
+(`disable-model-invocation: true`) — zero Claude context cost until you
+explicitly run them.
 
 ## Install
 
@@ -114,30 +98,45 @@ In Claude Code:
 
 ```bash
 /plugin marketplace add https://github.com/infroid/carefully-crafted-plugins
+/plugin install contexthub@carefully-crafted-plugins
 /plugin install codex@carefully-crafted-plugins
 /plugin install agy@carefully-crafted-plugins
-/plugin install contexthub@carefully-crafted-plugins
 ```
 
-`contexthub` works with Claude alone; install `codex` and `agy` as optional
-collaborators that each contexthub skill uses when present.
-
-The codex bridge auto-scaffolds `docs/carefully-crafted-plugins/` standards
-the first time you use one of its skills. Run `/codex:setup` to re-scaffold
-or refresh the starter files later.
+Installing `contexthub` auto-resolves and enables its one required
+dependency, `superpowers@claude-plugins-official` — no separate install
+step. `codex` and `agy` are optional, separately-installed bridges: install
+`codex` only for `/codex:*` commands, `agy` only for `/agy:*` commands.
+Neither is required by `/contexthub:supervise`.
 
 ## Requirements
 
-- Claude Code (recent enough to support plugins + skills)
-- For `codex`: Codex CLI — `npm install -g @openai/codex` or
-  `brew install codex`, then `codex login`
-- For `agy`: Antigravity CLI —
-  `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run
-  `agy` once interactively to sign in
-- For `contexthub`: nothing beyond Claude Code itself — every skill runs
-  Claude-solo if neither bridge is present. The Codex and Antigravity CLIs
-  are optional; each skill enriches its flow with whichever are installed
-- Node.js ≥ 20 (for the bridge scripts; pure standard library, no deps)
+- `contexthub` requires Superpowers (`superpowers@claude-plugins-official`)
+  — installing `contexthub` auto-resolves and enables it; you never install
+  it separately.
+- `codex`, the public bridge behind `/codex:*` commands, is optional and
+  installed separately; `/contexthub:supervise` talks to Codex directly and
+  does not need it.
+- Claude Code `2.1.143` or later is required for dependency enable/disable
+  enforcement (older versions can still install `contexthub`, but won't
+  reject an attempt to disable its required Superpowers dependency).
+- Codex CLI auth (`codex login`) remains a user prerequisite for every
+  Codex-touching skill.
+- Codex-side Superpowers (`superpowers@openai-curated`, installed and
+  enabled inside Codex, with its worker skills present) is a separately
+  required prerequisite that `/contexthub:supervise` checks before running
+  and never installs on your behalf.
+- Antigravity CLI auth is only needed for `/contexthub:converge` and the
+  `agy` bridge skills — `/contexthub:supervise` never spawns Antigravity
+  workers.
+- Node.js ≥ 20 and Git are the only script/runtime dependencies — pure
+  standard library, no npm packages.
+- `/codex:setup` is optional and explicit; nothing auto-scaffolds a repo on
+  first use of any skill.
+- Nano Banana (`/agy:nanobanana`) generates through the authenticated `agy`
+  CLI directly: a smaller, text-to-image-only guarantee that may require
+  access or billing for whichever image model your Antigravity account is
+  configured with.
 
 ## Layout
 
@@ -146,31 +145,31 @@ or refresh the starter files later.
 plugins/
 ├── codex/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{imagegen,reason,review,playwright,exec,resume,setup}/SKILL.md
+│   ├── skills/{imagegen,reason,review,exec,resume,setup}/SKILL.md
+│   ├── skills/{imagegen,reason}/evals/evals.json   # the two model-invocable skills only
 │   ├── reference/critical-evaluation.md
+│   ├── reference/defaults/{constraints,output-formats}/   # packaged defaults, copied in by /codex:setup
+│   ├── reference/schemas/code-review.schema.json
 │   └── scripts/
 │       ├── spec-builder.mjs     # writes the 5-section spec
 │       ├── codex-invoke.mjs     # wraps `codex exec` (+ resume, model, sandbox)
 │       ├── result-handler.mjs   # parses output, places artifacts
-│       ├── setup.mjs            # scaffolds user repo
+│       ├── setup.mjs            # optional, explicit repo scaffolding
 │       └── output-schema.json
 ├── agy/
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/{longctx,nanobanana,veo,exec,setup}/SKILL.md
-│   │   └── nanobanana/references/{capabilities,setup}.md  # tool surface + setup
+│   ├── skills/{exec,nanobanana}/SKILL.md
 │   └── scripts/
-│       ├── agy-invoke.mjs        # wraps `agy -p` (+ --collect artifact retrieval)
-│       ├── nanobanana-detect.mjs # which image backend is usable (mcp/agy/none)
-│       └── nanobanana-setup.mjs  # explicit, flag-gated Nano Banana MCP wiring
+│       └── agy-invoke.mjs        # wraps `agy -p` (+ --collect artifact retrieval)
 └── contexthub/
     ├── .claude-plugin/plugin.json
-    ├── skills/{spec,plan,tdd,review,verify,debug,ship}/SKILL.md  # lifecycle
-    ├── skills/triage/SKILL.md   # difficulty grading + routing plan
-    ├── skills/converge/SKILL.md # 4-phase multi-agent debate protocol
+    ├── skills/converge/{SKILL.md,references/critique-and-refinement-prompts.md}
+    ├── skills/supervise/{SKILL.md,references/protocol.md}
+    ├── schemas/{complexity,worker-report}.schema.json
     └── scripts/
-        ├── phase-write.mjs      # writes lifecycle phase artifacts
-        ├── triage-write.mjs     # writes the triage JSON artifact
-        └── agent-availability.mjs # detects Claude/codex/agy for graceful degradation
+        ├── agent-availability.mjs # detects Claude/codex/agy for converge
+        ├── supervise.mjs          # supervise's phase-machine entry point
+        └── supervise/{checkpoint,codex,contracts,git,scheduler,state,verify}.mjs
 tests/unit/                      # node --test, no external deps
 tools/
 ├── lint-skill.mjs               # quality-bar enforcer (run in CI via tests/)
@@ -188,8 +187,10 @@ output format* (links to your repo's format definitions), and any
 *pre-flight clarifications* Claude resolved with you. Codex receives a tiny
 prompt pointing at the spec file and reads everything from disk — no 800KB
 prompt limit, no opaque handoffs. The `agy` and `contexthub` bridges skip
-this scaffolding by design (Antigravity reads the repo itself; the
-multi-agent debate is its own protocol).
+this scaffolding by design: Antigravity reads the repo itself,
+`/contexthub:converge` is its own debate protocol, and
+`/contexthub:supervise` drives Codex through a compact machine task graph
+instead of a handoff spec.
 
 ## Run the tests
 
@@ -206,36 +207,37 @@ node tools/lint-skill.mjs    # SKILL.md quality bar
 node tools/eval-check.mjs    # evals.json structural validation
 ```
 
-## Migrating to 5.0.0
+## Migrating to 6.0.0
 
-The marketplace consolidated from five plugins to three. The `forge` and
-`triage` plugins were removed; their skills now live under `contexthub`,
-which also gained graceful degradation (it runs Claude-solo when codex/agy
-are absent). The command renames:
+v6 narrows the marketplace to ten high-value skills and adds
+`/contexthub:supervise`, a token-efficient engine where Claude plans and
+reviews while isolated GPT-5.6 Sol Codex workers implement. Twelve commands
+were removed with no aliases — Superpowers, not a new Carefully Crafted
+command, now owns every methodology step they used to perform.
 
-| Old | New |
+### Removed methodology commands → the Superpowers skill that replaces them
+
+| Removed | Use instead |
 |---|---|
-| `/forge:<phase>` | `/contexthub:<phase>` (spec, plan, tdd, review, verify, debug, ship) |
-| `/triage:grade` | `/contexthub:triage` |
+| `/contexthub:spec` | `superpowers:brainstorming` — explore intent, requirements, and design before implementation |
+| `/contexthub:plan` | `superpowers:writing-plans` |
+| `/contexthub:tdd` | `superpowers:test-driven-development`, run via `superpowers:executing-plans` or `superpowers:subagent-driven-development` |
+| `/contexthub:review` | `superpowers:requesting-code-review` (or `superpowers:receiving-code-review` on the receiving end) |
+| `/contexthub:verify` | `superpowers:verification-before-completion` |
+| `/contexthub:debug` | `superpowers:systematic-debugging` |
+| `/contexthub:ship` | `superpowers:finishing-a-development-branch` |
+| `/contexthub:triage` | grading is now a built-in step of `/contexthub:supervise`, not a standalone command |
 
-The lifecycle artifact directory moved from
-`docs/carefully-crafted-plugins/forge/` to
-`docs/carefully-crafted-plugins/lifecycle/`. `/contexthub:converge` and all
-`codex`/`agy` commands are unchanged.
+### Removed capabilities — cut, not replaced
 
-## Migrating from 2.x
-
-Skill names were tightened in 3.0.0 to remove cross-plugin collisions
-(both `codex` and `agy` previously had a skill called `image`). The
-renames:
-
-| Old | New |
+| Removed | Why |
 |---|---|
-| `/codex:image` | `/codex:imagegen` |
-| `/codex:browser` | `/codex:playwright` |
-| `/agy:image` | `/agy:nanobanana` |
-| `/agy:video` | `/agy:veo` |
-| `/agy:longcontext` | `/agy:longctx` |
+| `/codex:playwright` | Browser automation is out of scope for this marketplace; no replacement command |
+| `/agy:longctx` | 1M-token long-context analysis is out of scope for this marketplace; no replacement command |
+| `/agy:veo` | Video generation is out of scope for this marketplace; no replacement command |
+| `/agy:setup` | Nano Banana no longer has a wired multi-tool backend to set up — `/agy:nanobanana` now generates directly through the authenticated `agy` CLI with no setup step |
 
-`/codex:reason`, `/codex:review`, `/codex:exec`, `/codex:resume`,
-`/codex:setup`, `/agy:exec`, and `/contexthub:converge` are unchanged.
+`/codex:exec`, `/codex:imagegen`, `/codex:reason`, `/codex:resume`,
+`/codex:setup`, `/agy:exec`, `/agy:nanobanana` (now text-to-image only), and
+`/contexthub:converge` are unchanged in name; `/contexthub:supervise` is
+new.

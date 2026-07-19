@@ -1,5 +1,9 @@
 # Consolidate multi-agent flows under `contexthub` + agent-aware degradation
 
+> **Historical v5 document.** This records the superseded consolidation design.
+> The active v6 surface and implementation are defined by
+> `docs/superpowers/plans/2026-07-18-carefully-crafted-supervision-redesign.md`.
+
 ## Goal
 After shipping, all multi-agent / cross-agent orchestration lives under a
 single `contexthub` plugin, and every multi-agent skill automatically

@@ -1,5 +1,9 @@
 # Design: Consolidate multi-agent flows under `contexthub` + agent-aware degradation
 
+> **Historical v5 document.** This records the superseded consolidation design.
+> The active v6 surface and implementation are defined by
+> `docs/superpowers/plans/2026-07-18-carefully-crafted-supervision-redesign.md`.
+
 Date: 2026-05-28
 Status: approved (design), pending implementation plan
 
