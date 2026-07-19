@@ -180,17 +180,27 @@ quality-bar.md                   # the gates every skill must clear
 ## How the codex bridge works
 
 The `codex` bridge writes a **5-section spec** to
-`docs/carefully-crafted-plugins/handoffs/` for every delegation: *what to
-do* (role + task), *how to do* (numbered steps or open delegation),
-*standard constraints* (links to your repo's `.md` standards), *expected
-output format* (links to your repo's format definitions), and any
+`docs/carefully-crafted-plugins/handoffs/` for every **structured**
+delegation — `/codex:imagegen`, `/codex:reason`, and `/codex:review`. The
+sections are: *what to do* (role + task), *how to do* (numbered steps or
+open delegation), *standard constraints*, *expected output format*, and any
 *pre-flight clarifications* Claude resolved with you. Codex receives a tiny
 prompt pointing at the spec file and reads everything from disk — no 800KB
-prompt limit, no opaque handoffs. The `agy` and `contexthub` bridges skip
-this scaffolding by design: Antigravity reads the repo itself,
-`/contexthub:converge` is its own debate protocol, and
-`/contexthub:supervise` drives Codex through a compact machine task graph
-instead of a handoff spec.
+prompt limit, no opaque handoffs.
+
+The constraint and output-format sections link to packaged defaults under
+`${CLAUDE_PLUGIN_ROOT}/reference/defaults/` unless you have opted in to
+project-local copies. Because `/codex:setup` is optional and never runs on
+its own, those packaged defaults — not files in your repo — are what a
+fresh install references; run `/codex:setup` if you want editable copies
+under `docs/carefully-crafted-plugins/` to customize.
+
+`/codex:exec` and `/codex:resume` deliberately skip this scaffolding —
+`exec` is a raw passthrough and `resume` continues an existing session, so
+neither builds a spec. The `agy` and `contexthub` bridges skip it by design
+too: Antigravity reads the repo itself, `/contexthub:converge` is its own
+debate protocol, and `/contexthub:supervise` drives Codex through a compact
+machine task graph instead of a handoff spec.
 
 ## Run the tests
 
@@ -214,6 +224,9 @@ v6 narrows the marketplace to ten high-value skills and adds
 reviews while isolated GPT-5.6 Sol Codex workers implement. Twelve commands
 were removed with no aliases — Superpowers, not a new Carefully Crafted
 command, now owns every methodology step they used to perform.
+
+Upgrading from 4.x or earlier? See the 5.0.0 release notes for the
+`forge`/`triage` → `contexthub` renames first, then apply the table below.
 
 ### Removed methodology commands → the Superpowers skill that replaces them
 
@@ -241,3 +254,10 @@ command, now owns every methodology step they used to perform.
 `/codex:setup`, `/agy:exec`, `/agy:nanobanana` (now text-to-image only), and
 `/contexthub:converge` are unchanged in name; `/contexthub:supervise` is
 new.
+
+<!-- end migration -->
+
+Everything above this marker is the v6 migration record and is the only
+place in this README permitted to name removed commands. Anything added
+below it is held to the current-surface standard by
+`tests/unit/stale-references.test.mjs`.

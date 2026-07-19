@@ -72,7 +72,11 @@ test("spec mode passes model, reasoning effort, sandbox, and skip-git-repo-check
   try {
     const specPath = writeSpec(ctx.dir);
     const res = run(
-      ["--spec-path", specPath, "--model", "gpt-5.5", "--reasoning-effort", "high", "--sandbox", "workspace-write"],
+      // Deliberately an arbitrary, obviously-fake model name: this test
+      // asserts --model pass-through, not any particular default. (It
+      // previously used the former default, "gpt-5.5", which read as though
+      // it were encoding a stale default rather than an opaque value.)
+      ["--spec-path", specPath, "--model", "o3-mini-fake", "--reasoning-effort", "high", "--sandbox", "workspace-write"],
       ctx,
     );
     assert.equal(res.status, 0, `stderr: ${res.stderr}`);
@@ -82,7 +86,7 @@ test("spec mode passes model, reasoning effort, sandbox, and skip-git-repo-check
     assert.equal(argv[2], "--sandbox");
     assert.equal(argv[3], "workspace-write");
     assert.equal(argv[4], "-m");
-    assert.equal(argv[5], "gpt-5.5");
+    assert.equal(argv[5], "o3-mini-fake");
     assert.equal(argv[6], "-c");
     assert.equal(argv[7], "model_reasoning_effort=high");
     assert.ok(argv.includes("--output-schema"));

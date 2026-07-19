@@ -19,6 +19,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -61,26 +62,93 @@ function readFile(relPath) {
 
 const README_PATH = path.join(REPO_ROOT, "README.md");
 const MIGRATION_HEADING = "## Migrating to 6.0.0";
+const MIGRATION_END_MARKER = "<!-- end migration -->";
 
 /**
  * Splits README content into { before, section, after } around the
- * migration heading. The section runs from the heading up to (but not
- * including) the next top-level "## " heading, or end of file if this is
- * the last section. Returns null if the heading is absent.
+ * migration section.
+ *
+ * The section is closed at BOTH ends: it starts at the heading and ends at
+ * whichever comes first -- the explicit MIGRATION_END_MARKER or the next
+ * top-level "## " heading. It never runs to EOF.
+ *
+ * Ending at EOF was a real one-sided hole: because "## Migrating to 6.0.0"
+ * is the last section of the README, anything appended to the end of the
+ * file landed inside the exemption and was silently excused. Requiring an
+ * explicit terminator makes the exemption's absence a loud failure (this
+ * function throws) instead of a silent widening.
+ *
+ * Returns null only if the heading itself is absent; a dedicated test
+ * asserts non-null so that case fails loudly too.
  */
 function splitReadmeMigrationSection(content) {
   const headingIndex = content.indexOf(MIGRATION_HEADING);
   if (headingIndex === -1) return null;
   const afterHeading = headingIndex + MIGRATION_HEADING.length;
   const rest = content.slice(afterHeading);
+
+  const markerRel = rest.indexOf(MIGRATION_END_MARKER);
+  if (markerRel === -1) {
+    throw new Error(
+      `README.md has "${MIGRATION_HEADING}" but no "${MIGRATION_END_MARKER}" terminator after it. ` +
+        `The exemption must be closed at BOTH ends -- without the terminator it would run to the ` +
+        `next heading or, for the last section in the file, all the way to EOF, silently excusing ` +
+        `anything appended to README.md.`
+    );
+  }
+  const markerEnd = afterHeading + markerRel + MIGRATION_END_MARKER.length;
+
   const nextHeadingRel = rest.search(/\n## /);
-  const sectionEnd = nextHeadingRel === -1 ? content.length : afterHeading + nextHeadingRel;
+  const headingEnd = nextHeadingRel === -1 ? null : afterHeading + nextHeadingRel;
+
+  // Whichever boundary comes first wins, so a terminator accidentally placed
+  // after a later heading cannot re-widen the exemption across that heading.
+  const sectionEnd = headingEnd === null ? markerEnd : Math.min(markerEnd, headingEnd);
+
   return {
     before: content.slice(0, headingIndex),
     section: content.slice(headingIndex, sectionEnd),
     after: content.slice(sectionEnd),
   };
 }
+
+test("the migration section is terminated by exactly one end marker, placed after the heading", () => {
+  const content = fs.readFileSync(README_PATH, "utf8");
+  const markerCount = content.split(MIGRATION_END_MARKER).length - 1;
+  assert.equal(
+    markerCount,
+    1,
+    `expected exactly one "${MIGRATION_END_MARKER}" in README.md, found ${markerCount}. This marker ` +
+      `closes the stale-reference exemption; its absence (or duplication) must fail here rather than ` +
+      `silently widening the exempt region.`
+  );
+  const headingIndex = content.indexOf(MIGRATION_HEADING);
+  const markerIndex = content.indexOf(MIGRATION_END_MARKER);
+  assert.ok(headingIndex !== -1, `"${MIGRATION_HEADING}" must be present`);
+  assert.ok(
+    markerIndex > headingIndex,
+    `"${MIGRATION_END_MARKER}" must appear AFTER "${MIGRATION_HEADING}", otherwise it closes nothing`
+  );
+});
+
+test("content appended after the migration terminator is NOT exempt (the tail is closed)", () => {
+  // Directly exercises the hole this marker closes: text placed after the
+  // terminator must be scanned, proving the exemption no longer runs to EOF.
+  const content = fs.readFileSync(README_PATH, "utf8");
+  const escapeText = "\nOur roadmap still leans on /contexthub:tdd and gpt-5.5 for the software lifecycle.\n";
+  const split = splitReadmeMigrationSection(content + escapeText);
+  assert.ok(split, `"${MIGRATION_HEADING}" must be present`);
+  const outside = split.before + split.after;
+  assert.ok(
+    outside.includes("Our roadmap still leans on"),
+    "text appended to the end of README.md must fall OUTSIDE the exempt section"
+  );
+  const found = findRejected(outside);
+  assert.ok(
+    found.includes("/contexthub:tdd") && found.includes("gpt-5.5") && found.includes("software lifecycle"),
+    `appended stale references must be caught outside the exemption; caught: ${found.join(", ") || "(none)"}`
+  );
+});
 
 test("README has exactly one '## Migrating to 6.0.0' anchor", () => {
   const content = fs.readFileSync(README_PATH, "utf8");
@@ -260,14 +328,33 @@ test("the v6 plan exists at its exact recorded path", () => {
 // hardcoded file list), so a future file cannot silently escape the scan.
 // ---------------------------------------------------------------------------
 
-function walkFiles(dir, extensions) {
+// Fail-CLOSED by extension: every file under a scanned root is read unless
+// its extension is a known *binary* one.
+//
+// This replaces an inclusion allowlist (.md/.mjs/.json) that let a new
+// .txt/.html/.yaml file escape the scan simply by not being on the list --
+// the same "closed the named instance, not the property" failure mode this
+// plan keeps hitting. A denylist means a newly-introduced text format is
+// scanned by default and only a deliberate binary addition is skipped.
+// .svg stays scannable: it is text and can carry product claims.
+const BINARY_EXTENSIONS = Object.freeze(
+  new Set([
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff",
+    ".pdf", ".zip", ".gz", ".tgz", ".tar", ".bz2", ".xz",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp3", ".mp4", ".mov", ".avi", ".webm", ".wav", ".ogg",
+    ".node", ".wasm", ".dylib", ".so", ".dll", ".exe",
+  ])
+);
+
+function walkFiles(dir) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...walkFiles(full, extensions));
-    } else if (entry.isFile() && extensions.some((ext) => entry.name.endsWith(ext))) {
+      results.push(...walkFiles(full));
+    } else if (entry.isFile() && !BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
       results.push(full);
     }
   }
@@ -288,15 +375,21 @@ function scanCorpus() {
 
   // Retained plugin implementations -- skills, scripts, references,
   // schemas, and active evals -- discovered by walking plugins/ itself.
-  for (const f of walkFiles(pluginsDir, [".md", ".mjs", ".json"])) {
+  for (const f of walkFiles(pluginsDir)) {
     files.add(f);
   }
 
-  // Website.
-  files.add(path.join(REPO_ROOT, "index.html"));
+  // Website: EVERY top-level HTML page, globbed rather than named. Naming
+  // index.html specifically meant a second page (docs.html, pricing.html)
+  // would publish stale claims without the scan ever opening it.
+  for (const entry of fs.readdirSync(REPO_ROOT, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".html")) {
+      files.add(path.join(REPO_ROOT, entry.name));
+    }
+  }
 
   // Tools -- every script, discovered dynamically.
-  for (const f of walkFiles(path.join(REPO_ROOT, "tools"), [".mjs"])) {
+  for (const f of walkFiles(path.join(REPO_ROOT, "tools"))) {
     files.add(f);
   }
 
@@ -352,6 +445,156 @@ test("the scan actually visits the plugin/tooling/website corpus (non-vacuous)",
     "plugins/contexthub/skills/triage",
   ]) {
     assert.ok(!relFiles.some((f) => f.startsWith(removed + "/")), `removed skill dir "${removed}" must not exist`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Truthfulness of the codex bridge's 5-section-spec claim.
+//
+// Only SOME codex skills build a handoff spec: `exec` explicitly refuses to
+// ("Do **not** run `spec-builder.mjs`") and `resume` never mentions it. Any
+// public surface claiming the spec is written for *every* delegation or
+// *every* call is therefore false. This checks the property -- an unqualified
+// universal claim about spec coverage -- across every public surface at once,
+// rather than pinning the one sentence a reviewer happened to read.
+// ---------------------------------------------------------------------------
+
+const CODEX_SKILLS_DIR = path.join(REPO_ROOT, "plugins", "codex", "skills");
+// A real invocation, not a mention: `exec` names the script only to forbid it.
+const SPEC_BUILDER_INVOCATION = /node\s+\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/spec-builder\.mjs/;
+const SPEC_COVERAGE_QUALIFIERS = new Set(["structured"]);
+
+function codexSkillsBySpecUsage() {
+  const writesSpec = [];
+  const skipsSpec = [];
+  for (const entry of fs.readdirSync(CODEX_SKILLS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skillMd = path.join(CODEX_SKILLS_DIR, entry.name, "SKILL.md");
+    if (!fs.existsSync(skillMd)) continue;
+    const body = fs.readFileSync(skillMd, "utf8");
+    (SPEC_BUILDER_INVOCATION.test(body) ? writesSpec : skipsSpec).push(entry.name);
+  }
+  return { writesSpec: writesSpec.sort(), skipsSpec: skipsSpec.sort() };
+}
+
+/** Returns the named "## " section of the README, exclusive of following sections. */
+function readmeSection(heading) {
+  const content = fs.readFileSync(README_PATH, "utf8");
+  const start = content.indexOf(heading);
+  if (start === -1) return null;
+  const rest = content.slice(start + heading.length);
+  const nextRel = rest.search(/\n## /);
+  return nextRel === -1 ? content.slice(start) : content.slice(start, start + heading.length + nextRel);
+}
+
+function publicSpecClaimSurfaces() {
+  const marketplace = JSON.parse(readFile(".claude-plugin/marketplace.json"));
+  const codexEntry = marketplace.plugins.find((p) => p.name === "codex");
+  const codexManifest = JSON.parse(readFile("plugins/codex/.claude-plugin/plugin.json"));
+  return [
+    { label: "README.md (## How the codex bridge works)", text: readmeSection("## How the codex bridge works") },
+    { label: ".claude-plugin/marketplace.json (codex entry description)", text: codexEntry.description },
+    { label: "plugins/codex/.claude-plugin/plugin.json (description)", text: codexManifest.description },
+    { label: "index.html", text: readFile("index.html") },
+  ];
+}
+
+test("the spec-builder discriminator genuinely separates codex skills (non-vacuous)", () => {
+  const { writesSpec, skipsSpec } = codexSkillsBySpecUsage();
+  assert.ok(writesSpec.length > 0, "expected at least one codex skill to actually invoke spec-builder.mjs");
+  assert.ok(skipsSpec.length > 0, "expected at least one codex skill to skip spec-builder.mjs");
+  assert.ok(writesSpec.includes("reason"), `"reason" demonstrably builds a spec; got writesSpec=${writesSpec}`);
+  assert.ok(
+    skipsSpec.includes("exec"),
+    `"exec" explicitly says not to run spec-builder.mjs, so it must be classified as skipping; got skipsSpec=${skipsSpec}`
+  );
+  assert.ok(
+    skipsSpec.includes("resume"),
+    `"resume" never references spec-builder.mjs, so it must be classified as skipping; got skipsSpec=${skipsSpec}`
+  );
+});
+
+test("no public surface claims the 5-section spec covers EVERY delegation/call while some codex skills skip it", () => {
+  const { skipsSpec } = codexSkillsBySpecUsage();
+  const quantifier = /\b(?:every|each|all)\s+([a-z-]+\s+)?(?:delegation|call)s?\b/gi;
+  let quantifiedClaimsSeen = 0;
+
+  for (const { label, text } of publicSpecClaimSurfaces()) {
+    assert.ok(text, `${label}: expected this surface to be readable`);
+    // Only sentences that are actually about the spec/handoff can make a
+    // spec-coverage claim -- this keeps CSS class names like
+    // ".handoff__layout" and unrelated prose out of scope.
+    for (const sentence of text.split(/(?<=[.!?])\s+|\n\n+/)) {
+      if (!/\b(?:spec|handoff)\b/i.test(sentence)) continue;
+      for (const match of sentence.matchAll(quantifier)) {
+        quantifiedClaimsSeen++;
+        const qualifier = (match[1] || "").trim().toLowerCase();
+        assert.ok(
+          SPEC_COVERAGE_QUALIFIERS.has(qualifier),
+          `${label} claims the 5-section spec is written for "${match[0].trim()}", but these codex skills ` +
+            `skip it entirely: ${skipsSpec.join(", ")}. Qualify the claim (e.g. "every structured delegation") ` +
+            `so the page does not contradict the skills it documents.\n  Sentence: ${sentence.trim().slice(0, 200)}`
+        );
+      }
+    }
+  }
+
+  assert.ok(
+    quantifiedClaimsSeen > 0,
+    "expected at least one quantified spec-coverage claim across the public surfaces; found none, which " +
+      "would make this guard vacuous (the claim was probably reworded in a way this test no longer sees)"
+  );
+});
+
+test("the codex-bridge README section discloses that constraint/output-format defaults are packaged until /codex:setup is run", () => {
+  const section = readmeSection("## How the codex bridge works");
+  assert.ok(section, "README must have a '## How the codex bridge works' section");
+  assert.ok(
+    /reference\/defaults|packaged default/i.test(section),
+    "Since /codex:setup is optional and non-automatic, skills reference the packaged defaults under " +
+      "${CLAUDE_PLUGIN_ROOT}/reference/defaults/ until a user opts in. The section must say so rather than " +
+      "describing constraints/output formats as unconditionally 'your repo's' files."
+  );
+});
+
+test("walkFiles selects by binary-denylist, not by an inclusion allowlist -- a new text format is scanned by default", () => {
+  // Isolated temp dir: proves the property directly without touching the repo.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "stale-ref-walk-"));
+  try {
+    for (const name of ["note.txt", "page.html", "conf.yaml", "doc.md", "code.mjs", "data.json", "vector.svg"]) {
+      fs.writeFileSync(path.join(tmp, name), "placeholder", "utf8");
+    }
+    fs.writeFileSync(path.join(tmp, "image.png"), "binary-placeholder", "utf8");
+    fs.mkdirSync(path.join(tmp, "nested"));
+    fs.writeFileSync(path.join(tmp, "nested", "deep.txt"), "placeholder", "utf8");
+
+    const found = walkFiles(tmp)
+      .map((f) => path.relative(tmp, f))
+      .sort();
+    assert.deepEqual(
+      found,
+      ["code.mjs", "conf.yaml", "data.json", "doc.md", path.join("nested", "deep.txt"), "note.txt", "page.html", "vector.svg"].sort(),
+      "walkFiles must return every non-binary file (including .txt/.html/.yaml/.svg and nested ones) and skip binaries"
+    );
+    assert.ok(!found.includes("image.png"), "binary files must be skipped");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("the website corpus is every top-level .html page, globbed rather than hardcoded", () => {
+  const rootHtml = fs
+    .readdirSync(REPO_ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".html"))
+    .map((e) => e.name);
+  assert.ok(rootHtml.includes("index.html"), "sanity: index.html must exist at the repo root");
+  const scanned = new Set(scanCorpus().map((f) => path.relative(REPO_ROOT, f)));
+  for (const name of rootHtml) {
+    assert.ok(
+      scanned.has(name),
+      `top-level page "${name}" must be in the scanned corpus -- the website corpus must be globbed, ` +
+        `not a hardcoded filename, so a second page cannot publish stale claims unscanned`
+    );
   }
 });
 
