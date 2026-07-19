@@ -146,12 +146,15 @@ and each half exists because its absence makes the completion check
 incapable of failing:
 
 - **Must name a destination ref.** The target is resolved with
-  `git rev-parse --symbolic-full-name --verify`; if that does not succeed
-  with non-empty output, the target is refused. A value naming a *commit*
-  rather than a destination — a full or abbreviated SHA, a reflog entry, a
-  `^{commit}` peel — cannot express "the place the work landed," and when
-  such a value resolves to the integration HEAD the reachability check
-  passes trivially. Refusal, not a fallthrough, is what closes this.
+  `git rev-parse --symbolic-full-name --verify`, and the result must land in
+  `refs/heads/**` or `refs/remotes/**` — a local branch or a remote-tracking
+  branch. Anything else is refused. A value naming a *commit* rather than a
+  destination (a full or abbreviated SHA, a reflog entry, a `^{commit}`
+  peel) cannot express "the place the work landed"; and a tag, the stash, or
+  a worktree-local ref names something nothing merges into. In every one of
+  those cases, pointing the value at the integration HEAD makes the
+  reachability check pass trivially. Refusal, not a fallthrough, is what
+  closes this.
 - **Must not be this run's integration branch.** Compared against the
   resolved ref, including any ref whose full name ends in this run's
   integration branch path, which covers remote-tracking copies of it. A
@@ -159,10 +162,19 @@ incapable of failing:
   distinguish a performed merge from an unperformed one.
 
 The rule is stated as a property rather than as a list of rejected spellings
-deliberately: this check was twice reopened by closing the specific spellings
-that had been demonstrated, while the property they violated stayed
-unenforced. Anything failing either half above is refused regardless of how
-it is written.
+deliberately: this check was reopened more than once by closing the specific
+spellings that had been demonstrated, while the property they violated
+stayed unenforced. Anything failing either half above is refused regardless
+of how it is written.
+
+**The limit of what this can prove.** Once a target is a legitimate branch,
+the check confirms the integration HEAD is reachable from it — and no local
+check can distinguish a real fast-forward merge from someone having pointed
+that branch at the same commit. That is an accepted limit, not an oversight:
+the two are identical in the repository. What the rules above guarantee is
+narrower and still worth having — the target names somewhere work can land,
+it is not the run's own integration line, and so the check cannot be
+satisfied *by construction, before any action occurs*.
 
 `keep`, `discard`, and `pr` require no target. `pr` is deliberately
 excluded: its meaningful evidence is the remote pull request, which this

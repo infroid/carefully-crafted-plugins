@@ -1017,6 +1017,31 @@ describe("choose-finish: a verifiable target is mandatory for merge/push", () =>
     ["abbreviated SHA of the integration HEAD", ({ integrationWorktree }) => execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim()],
     ["HEAD@{0} (reflog spelling)", () => "HEAD@{0}"],
     ["^{commit} peel of the integration branch", ({ runId }) => `carefully-crafted/${runId}/integration^{commit}`],
+    // (c) real refs that are not merge DESTINATIONS. These resolve fine, so
+    // "resolves to some ref" accepted them — but nothing merges into a tag,
+    // the stash, or a worktree-local ref, and each pointed at the
+    // integration HEAD satisfied the reachability check. Only refs/heads/**
+    // and refs/remotes/** are destinations.
+    ["lightweight tag at the integration HEAD", ({ repo, integrationWorktree }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+      execFileSync("git", ["tag", "lw-tag", head], { cwd: repo });
+      return "lw-tag";
+    }],
+    ["annotated tag at the integration HEAD", ({ repo, integrationWorktree }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+      execFileSync("git", ["tag", "-a", "ann-tag", "-m", "annotated", head], { cwd: repo });
+      return "ann-tag";
+    }],
+    ["refs/stash at the integration HEAD", ({ repo, integrationWorktree }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+      execFileSync("git", ["update-ref", "refs/stash", head], { cwd: repo });
+      return "refs/stash";
+    }],
+    ["worktree-local refs/worktree/* at the integration HEAD", ({ integrationWorktree }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+      execFileSync("git", ["update-ref", "refs/worktree/wt-ref", head], { cwd: integrationWorktree });
+      return "refs/worktree/wt-ref";
+    }],
   ]) {
     test(`a target that cannot prove a merge is refused — spelling: ${label}`, async () => {
       const harness = makeHarness();
@@ -1060,6 +1085,32 @@ describe("choose-finish: a verifiable target is mandatory for merge/push", () =>
     assert.equal(res.code, 1, "a target that cannot prove a merge must not complete");
     assert.equal(res.out.phase, "FINISH_ACTION_PENDING");
   });
+
+  // THE ACCEPTANCE CONTROLS for the namespace narrowing. Restricting to
+  // refs/heads/** and refs/remotes/** is only correct if it still admits
+  // every legitimate destination, so both are asserted directly rather than
+  // inferred from the tags/stash cases failing.
+  for (const [label, buildTarget] of [
+    ["a local branch (refs/heads/**)", ({ repo }) => {
+      execFileSync("git", ["branch", "release-ctl"], { cwd: repo });
+      return "release-ctl";
+    }],
+    ["a remote-tracking branch (refs/remotes/**)", ({ repo }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+      execFileSync("git", ["update-ref", "refs/remotes/origin/main-ctl", head], { cwd: repo });
+      return "origin/main-ctl";
+    }],
+  ]) {
+    test(`a legitimate destination is still ACCEPTED — ${label}`, async () => {
+      const harness = makeHarness();
+      const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+      const target = buildTarget({ repo: harness.repo, integrationWorktree });
+      const decisionPath = writeJson(harness.root, "decision.json", { target });
+      const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+      assert.equal(res.code, 0, res.rawErr);
+      assert.equal(res.out.phase, "FINISH_ACTION_PENDING");
+    });
+  }
 
   test("a GENUINE target is still accepted and still verified — the resolved-ref guard does not over-block", async () => {
     // The negative control for the three tests above: proves the guard

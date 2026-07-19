@@ -263,18 +263,35 @@ function isAncestorOf(cwd, ancestor, ref) {
 // abbreviated SHA, `HEAD@{0}`, and a `^{commit}` peel all resolve to that
 // commit and all reported a merge that never happened.
 //
-// So the gate is now: `--symbolic-full-name --verify` must SUCCEED with
+// So the gate is: `--symbolic-full-name --verify` must SUCCEED with
 // non-empty output, and failure is a REFUSAL, not a fallthrough. That single
 // change kills the entire SHA/reflog/peel family at once, because none of
 // them names a destination — you cannot merge *into* a commit object. There
 // is no fallthrough left for a sixth spelling to escape through.
 //
-// Returns null when the target does not name a ref at all.
+// AND THE RESOLVED REF MUST ACTUALLY BE A DESTINATION. "Resolves to some
+// ref" is weaker than "names a destination a merge could land in": a
+// lightweight tag, an annotated tag, `refs/stash`, and a worktree-local
+// `refs/worktree/*` ref all resolve fine and all pointed at the integration
+// HEAD would satisfy the reachability check. Nobody merges *into* a tag or
+// the stash, so restricting the namespace costs nothing legitimate and makes
+// the enforced rule match the documented one — the alternative was to weaken
+// the doc, and an over-claimed safety property on this particular check is
+// exactly what should not be left standing.
+//
+// Only local branches and remote-tracking branches are merge/push
+// destinations, so those are the two namespaces accepted.
+const DESTINATION_REF_NAMESPACES = Object.freeze(["refs/heads/", "refs/remotes/"]);
+
+// Returns the resolved full ref name, or null when the target does not name
+// a ref at all OR names a ref that is not a merge destination.
 function resolveDestinationRef(cwd, ref) {
   const r = spawnSync("git", ["rev-parse", "--symbolic-full-name", "--verify", ref], { cwd, encoding: "utf8" });
   if (r.status !== 0) return null;
   const v = (r.stdout || "").trim();
-  return v.length > 0 ? v : null;
+  if (v.length === 0) return null;
+  if (!DESTINATION_REF_NAMESPACES.some((ns) => v.startsWith(ns))) return null;
+  return v;
 }
 
 // The run's own integration branch, in any spelling: the exact ref, or any
@@ -294,7 +311,7 @@ function isOwnIntegrationRef(runId, resolvedRef) {
 function rejectionReasonForTarget(cwd, runId, target) {
   const resolved = resolveDestinationRef(cwd, target);
   if (resolved === null) {
-    return `target "${target}" does not name a destination ref that a merge could land in (a commit SHA, a reflog entry such as HEAD@{0}, or a "^{commit}" peel names a commit, not a destination) — completion is verified by proving the integration HEAD is reachable from the target ref, which such a value cannot express`;
+    return `target "${target}" does not name a destination ref that a merge could land in — it must resolve to a local branch (refs/heads/**) or a remote-tracking branch (refs/remotes/**). A commit SHA, a reflog entry such as HEAD@{0}, or a "^{commit}" peel names a commit rather than a destination; a tag, the stash, or a worktree-local ref names something nothing merges into. Completion is verified by proving the integration HEAD is reachable from the target ref, which none of those can express`;
   }
   if (isOwnIntegrationRef(runId, resolved)) {
     return `target "${target}" resolves to ${resolved}, which is this run's own integration branch — the completion check would be vacuously true against it, so it could never prove an action was performed`;
