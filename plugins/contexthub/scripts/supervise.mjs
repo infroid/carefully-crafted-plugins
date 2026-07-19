@@ -248,36 +248,58 @@ function isAncestorOf(cwd, ancestor, ref) {
   return r.status === 0;
 }
 
-// COMPARE RESOLVED REFS, NEVER REF SPELLINGS.
+// THE PROPERTY A MERGE/PUSH TARGET MUST HAVE:
 //
-// A raw string comparison against the short branch name caught exactly one
-// spelling of one ref. `refs/heads/carefully-crafted/<run>/integration` and
-// `HEAD` (evaluated in the integration worktree, where it IS that branch)
-// both slipped past it — and then `isAncestorOf` was vacuously true, because
-// a branch is always an ancestor of itself. The result was a reported merge
-// that never happened.
+//   It must NAME A DESTINATION REF that a merge could land in, and that ref
+//   must not be this run's own integration branch.
 //
-// Resolving through git is what makes the check spelling-proof: every alias
-// for the same ref collapses to one canonical name, so a fourth spelling
-// cannot reopen the hole the way a denylist of spellings invites.
+// Stating it as a property rather than as a list of rejected spellings is
+// the whole point. This check was reopened twice by fixing instances:
+// first a raw string compare against the short branch name (caught one
+// spelling), then a canonicalizing ref comparison that still returned
+// "not the integration branch" for anything that was not a symbolic ref —
+// and handed those to an ancestry check that is VACUOUSLY TRUE whenever the
+// target resolves to the integration HEAD commit. A full SHA, an
+// abbreviated SHA, `HEAD@{0}`, and a `^{commit}` peel all resolve to that
+// commit and all reported a merge that never happened.
 //
-// Returns null when the target does not resolve to a symbolic ref (a raw
-// SHA, or a ref that does not exist yet); callers treat that as "not the
-// integration branch" and let the normal ancestry check decide.
-function resolveSymbolicRef(cwd, ref) {
-  const r = spawnSync("git", ["rev-parse", "--symbolic-full-name", ref], { cwd, encoding: "utf8" });
+// So the gate is now: `--symbolic-full-name --verify` must SUCCEED with
+// non-empty output, and failure is a REFUSAL, not a fallthrough. That single
+// change kills the entire SHA/reflog/peel family at once, because none of
+// them names a destination — you cannot merge *into* a commit object. There
+// is no fallthrough left for a sixth spelling to escape through.
+//
+// Returns null when the target does not name a ref at all.
+function resolveDestinationRef(cwd, ref) {
+  const r = spawnSync("git", ["rev-parse", "--symbolic-full-name", "--verify", ref], { cwd, encoding: "utf8" });
   if (r.status !== 0) return null;
   const v = (r.stdout || "").trim();
   return v.length > 0 ? v : null;
 }
 
-// True when `target`, however it is spelled, resolves to this run's own
-// integration branch — against which any completion check is vacuous.
-function targetIsOwnIntegrationBranch(cwd, runId, target) {
-  const ownRef = `refs/heads/${integrationBranchName(runId)}`;
-  if (target === ownRef || target === integrationBranchName(runId)) return true;
-  const resolved = resolveSymbolicRef(cwd, target);
-  return resolved !== null && resolved === ownRef;
+// The run's own integration branch, in any spelling: the exact ref, or any
+// ref whose full name ends in the run's integration branch path (which is
+// what catches a remote-tracking copy such as
+// refs/remotes/origin/carefully-crafted/<run>/integration — a real ref, but
+// still this run's own integration line, so still vacuous).
+function isOwnIntegrationRef(runId, resolvedRef) {
+  const branch = integrationBranchName(runId);
+  return resolvedRef === `refs/heads/${branch}` || resolvedRef.endsWith(`/${branch}`);
+}
+
+// Validates a merge/push target against the property above. Returns null
+// when acceptable, or an operator-facing reason string when it must be
+// refused. Used at BOTH gates so a target recorded before this check, or by
+// any path that bypassed choose-finish, still cannot complete.
+function rejectionReasonForTarget(cwd, runId, target) {
+  const resolved = resolveDestinationRef(cwd, target);
+  if (resolved === null) {
+    return `target "${target}" does not name a destination ref that a merge could land in (a commit SHA, a reflog entry such as HEAD@{0}, or a "^{commit}" peel names a commit, not a destination) — completion is verified by proving the integration HEAD is reachable from the target ref, which such a value cannot express`;
+  }
+  if (isOwnIntegrationRef(runId, resolved)) {
+    return `target "${target}" resolves to ${resolved}, which is this run's own integration branch — the completion check would be vacuously true against it, so it could never prove an action was performed`;
+  }
+  return null;
 }
 
 // Force-delete is ONLY ever performed by the supervisor (this CLI, never
@@ -315,6 +337,19 @@ function forceDeleteRunBranch(topLevel, runId, branch) {
   }
 }
 
+// Canonical form of a path for COMPARISON. Every path comparison that
+// decides whether something may be destroyed goes through this, so no such
+// decision can turn on two paths merely being spelled the same way. Falls
+// back to `resolve` when the path no longer exists, which is the right
+// answer for an already-removed worktree.
+function realpathOrSelf(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
 // THE CLI IS THE SAFETY BOUNDARY, NOT THE CALLER'S GOOD BEHAVIOUR.
 //
 // SKILL.md tells Claude to run discard from the original repository, but a
@@ -327,12 +362,7 @@ function forceDeleteRunBranch(topLevel, runId, branch) {
 // Resolution is via realpath on both sides so a symlinked cwd cannot slip
 // past a string-prefix comparison.
 function assertCwdOutside(io, forbiddenPaths, context) {
-  let realCwd;
-  try {
-    realCwd = realpathSync(io.cwd());
-  } catch {
-    realCwd = path.resolve(io.cwd());
-  }
+  const realCwd = realpathOrSelf(io.cwd());
   for (const p of forbiddenPaths) {
     let realP;
     try {
@@ -1411,13 +1441,12 @@ async function cmdChooseFinish(args, io) {
   if (TARGET_REQUIRED_CHOICES.has(args.choice) && target === null) {
     throw new CliError(2, `choose-finish: --choice "${args.choice}" requires a non-empty "target" (the ref the work is ${args.choice === "merge" ? "merged into" : "pushed to"}) in the decision file — without it complete-finish has nothing to verify the action against and would accept an unperformed action`);
   }
-  // A self-referential target would make the ancestry check vacuously true:
-  // the integration HEAD is always reachable from its own branch. Compared
-  // through git's own resolution, so every spelling of that ref — short,
-  // fully-qualified, and HEAD evaluated inside the integration worktree —
-  // is caught by one comparison.
-  if (target !== null && targetIsOwnIntegrationBranch(ctx.worktreePaths.integration, runId, target)) {
-    throw new CliError(2, `choose-finish: target "${target}" resolves to this run's own integration branch — the completion check would be vacuously true against it`);
+  // The target must name a destination ref that is not this run's own
+  // integration branch — see rejectionReasonForTarget for why this is a
+  // property check rather than a list of rejected spellings.
+  if (target !== null) {
+    const reason = rejectionReasonForTarget(ctx.worktreePaths.integration, runId, target);
+    if (reason) throw new CliError(2, `choose-finish: ${reason}`);
   }
   writeLedgerArtifactExclusive(paths.finishChoice, bytes);
 
@@ -1473,14 +1502,15 @@ async function cmdCompleteFinish(args, io) {
       }
       detail.evidence = evObj;
       if (success && run.finish.target) {
-        // Re-check self-reference HERE too, resolved through git, not just
-        // at choose-finish. Otherwise a run whose target was recorded
-        // before the resolved-ref fix — or by any path that bypassed it —
-        // would reach this ancestry check with a target that makes it
-        // vacuously true, which is exactly the reported defect.
-        if (targetIsOwnIntegrationBranch(integrationWorktreePath, runId, run.finish.target)) {
+        // The SAME property check as choose-finish, not a weaker echo of it.
+        // A target recorded before this check existed — or by any path that
+        // bypassed choose-finish — must not be able to reach the ancestry
+        // check, because that check cannot fail for a target resolving to
+        // the integration HEAD. This gate is what makes that unreachable.
+        const reason = rejectionReasonForTarget(integrationWorktreePath, runId, run.finish.target);
+        if (reason) {
           success = false;
-          detail.reason = `recorded target "${run.finish.target}" resolves to this run's own integration branch — the ancestry check would be vacuously true, so it proves no action was performed`;
+          detail.reason = `recorded ${reason}`;
         } else {
           success = isAncestorOf(integrationWorktreePath, readHead(integrationWorktreePath), run.finish.target);
           if (!success) detail.reason = `integration HEAD is not yet reachable from target "${run.finish.target}"`;
@@ -1581,7 +1611,15 @@ async function cmdCleanup(args, io) {
     throw new CliError(2, 'cleanup --mode post-complete: --decision-file must contain {"confirm":"post-complete","run_id":"<this run>"}');
   }
   // Never the kept integration worktree/branch.
-  const worktrees = listRunWorktrees({ repoInfo, runId }).filter((wt) => wt.path !== worktreePaths.integration);
+  // Realpath BOTH sides. This filter decides which worktrees post-complete
+  // may destroy, and it is the one place a mismatch would delete the thing
+  // that must be preserved — so it must not depend on two paths happening to
+  // be spelled identically. `assertCwdOutside` immediately below already
+  // resolves both sides; this is the same discipline applied to the filter
+  // that feeds it.
+  const integrationReal = realpathOrSelf(worktreePaths.integration);
+  const worktrees = listRunWorktrees({ repoInfo, runId })
+    .filter((wt) => realpathOrSelf(wt.path) !== integrationReal);
   // Same boundary as discard, scoped to exactly what this mode removes: the
   // kept integration worktree is a legitimate cwd here, a doomed task
   // worktree is not.

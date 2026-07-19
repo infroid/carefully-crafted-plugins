@@ -136,13 +136,33 @@ never performed. `choose-finish` therefore refuses a missing or empty
 target up front, while the user is still being asked, rather than
 discovering it at completion time.
 
-The target may **not** be this run's own integration branch. That check
-resolves the ref through git (`rev-parse --symbolic-full-name`) rather than
-comparing spellings, so `carefully-crafted/<run-id>/integration`,
-`refs/heads/carefully-crafted/<run-id>/integration`, and `HEAD` evaluated
-inside the integration worktree are all rejected as the same vacuous
-self-reference — a branch is always an ancestor of itself, so such a target
-would make the completion check trivially pass.
+### The property a target must satisfy
+
+> A merge/push target must **name a destination ref that a merge could land
+> in**, and that ref must **not be this run's own integration branch**.
+
+Both halves are enforced, at `choose-finish` and again at `complete-finish`,
+and each half exists because its absence makes the completion check
+incapable of failing:
+
+- **Must name a destination ref.** The target is resolved with
+  `git rev-parse --symbolic-full-name --verify`; if that does not succeed
+  with non-empty output, the target is refused. A value naming a *commit*
+  rather than a destination — a full or abbreviated SHA, a reflog entry, a
+  `^{commit}` peel — cannot express "the place the work landed," and when
+  such a value resolves to the integration HEAD the reachability check
+  passes trivially. Refusal, not a fallthrough, is what closes this.
+- **Must not be this run's integration branch.** Compared against the
+  resolved ref, including any ref whose full name ends in this run's
+  integration branch path, which covers remote-tracking copies of it. A
+  branch is always reachable from itself, so such a target could never
+  distinguish a performed merge from an unperformed one.
+
+The rule is stated as a property rather than as a list of rejected spellings
+deliberately: this check was twice reopened by closing the specific spellings
+that had been demonstrated, while the property they violated stayed
+unenforced. Anything failing either half above is refused regardless of how
+it is written.
 
 `keep`, `discard`, and `pr` require no target. `pr` is deliberately
 excluded: its meaningful evidence is the remote pull request, which this

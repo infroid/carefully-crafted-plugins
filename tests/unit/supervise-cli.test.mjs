@@ -977,29 +977,54 @@ describe("choose-finish: a verifiable target is mandatory for merge/push", () =>
     assert.equal(res.code, 2, res.rawErr);
   });
 
-  // EVERY SPELLING OF THE SELF-REFERENCE, NOT JUST THE SHORT ONE.
+  // THE PROPERTY, NOT A LIST OF SPELLINGS.
   //
-  // The first fix compared the target as a raw string against the SHORT
-  // branch name, which caught exactly one spelling. The fully-qualified ref
-  // and `HEAD` (evaluated in the integration worktree, where it IS that
-  // branch) both slipped past and then made `isAncestorOf` vacuously true —
-  // a branch is always an ancestor of itself — so complete-finish reported
-  // COMPLETE for a merge that never happened. These three cases are one
-  // parameterized test because they must never diverge again: the fix
-  // resolves the ref through git rather than matching spellings, so a
-  // fourth spelling cannot reopen the hole.
+  // This check was reopened twice by fixing instances rather than the
+  // property, so the cases below deliberately span BOTH failure families
+  // and live in one parameterized test that must never be split:
+  //
+  //   (a) refs that ARE this run's integration branch under another name —
+  //       short, fully-qualified, HEAD, `@`, a symbolic-ref alias, and a
+  //       remote-tracking copy;
+  //   (b) values that name a COMMIT rather than a destination — a full SHA,
+  //       an abbreviated SHA, a `HEAD@{0}` reflog spelling, and a
+  //       `^{commit}` peel.
+  //
+  // Family (b) is the one that survived round 2: those resolve to the
+  // integration HEAD commit, and the ancestry check they fell through to
+  // cannot fail for such a value, so each reported a merge that never
+  // happened. The enforced property is that a target must name a
+  // destination ref a merge could land in, and must not be this run's own
+  // integration branch.
   for (const [label, buildTarget] of [
-    ["short branch name", (runId) => `carefully-crafted/${runId}/integration`],
-    ["fully-qualified ref", (runId) => `refs/heads/carefully-crafted/${runId}/integration`],
-    ["HEAD (resolves to the integration branch in that worktree)", () => "HEAD"],
+    // (a) same branch, different name
+    ["short branch name", ({ runId }) => `carefully-crafted/${runId}/integration`],
+    ["fully-qualified ref", ({ runId }) => `refs/heads/carefully-crafted/${runId}/integration`],
+    ["HEAD (is the integration branch in that worktree)", () => "HEAD"],
+    ["@ (HEAD synonym)", () => "@"],
+    ["symbolic-ref alias pointing at the integration branch", ({ runId, repo }) => {
+      execFileSync("git", ["symbolic-ref", "refs/heads/alias-to-integ", `refs/heads/carefully-crafted/${runId}/integration`], { cwd: repo });
+      return "alias-to-integ";
+    }],
+    ["remote-tracking copy of the integration branch", ({ runId, repo, integrationWorktree }) => {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+      const ref = `refs/remotes/origin/carefully-crafted/${runId}/integration`;
+      execFileSync("git", ["update-ref", ref, head], { cwd: repo });
+      return ref;
+    }],
+    // (b) names a commit, not a destination
+    ["full SHA of the integration HEAD", ({ integrationWorktree }) => execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim()],
+    ["abbreviated SHA of the integration HEAD", ({ integrationWorktree }) => execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim()],
+    ["HEAD@{0} (reflog spelling)", () => "HEAD@{0}"],
+    ["^{commit} peel of the integration branch", ({ runId }) => `carefully-crafted/${runId}/integration^{commit}`],
   ]) {
-    test(`a self-referential target is refused as vacuous — spelling: ${label}`, async () => {
+    test(`a target that cannot prove a merge is refused — spelling: ${label}`, async () => {
       const harness = makeHarness();
       const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
-      const selfTarget = writeJson(harness.root, "decision.json", { target: buildTarget(runId) });
+      const target = buildTarget({ runId, repo: harness.repo, integrationWorktree });
+      const selfTarget = writeJson(harness.root, "decision.json", { target });
       const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", selfTarget], integrationWorktree, waveEnv);
       assert.equal(res.code, 2, res.rawErr);
-      assert.match(res.rawErr, /vacuously true/);
 
       // The run never advanced, so no completion is reachable from here —
       // this is what makes the refusal meaningful rather than cosmetic.
@@ -1007,6 +1032,34 @@ describe("choose-finish: a verifiable target is mandatory for merge/push", () =>
       assert.equal(status.out.phase, "FINISH_PENDING");
     });
   }
+
+  test("complete-finish independently refuses a bad target, even when choose-finish never saw it", async () => {
+    // The second gate is not a weaker echo of the first. A target recorded
+    // before this check existed — reproduced here by writing run.json
+    // directly, the only way to construct that state without modifying a
+    // frozen module — must still be unable to reach the ancestry check,
+    // because that check cannot fail for a target resolving to the
+    // integration HEAD.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const legitTarget = writeJson(harness.root, "decision.json", { target: "release" });
+    execFileSync("git", ["branch", "release"], { cwd: harness.repo });
+    const chooseRes = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", legitTarget], integrationWorktree, waveEnv);
+    assert.equal(chooseRes.code, 0, chooseRes.rawErr);
+
+    // Now rewrite the recorded target to the integration HEAD's raw SHA,
+    // simulating a run whose target predates this check.
+    const repoInfo = inspectRepository(harness.repo);
+    const paths = getRunPaths(repoInfo, runId);
+    const runJson = JSON.parse(readFileSync(paths.runFile, "utf8"));
+    runJson.finish.target = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    writeFileSync(paths.runFile, JSON.stringify(runJson, null, 2));
+
+    const evidencePath = writeJson(harness.root, "evidence.json", { note: "no merge performed" });
+    const res = await call(["complete-finish", "--run", runId, "--evidence-file", evidencePath], integrationWorktree, waveEnv);
+    assert.equal(res.code, 1, "a target that cannot prove a merge must not complete");
+    assert.equal(res.out.phase, "FINISH_ACTION_PENDING");
+  });
 
   test("a GENUINE target is still accepted and still verified — the resolved-ref guard does not over-block", async () => {
     // The negative control for the three tests above: proves the guard

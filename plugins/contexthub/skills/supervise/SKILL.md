@@ -33,8 +33,8 @@ from the original repository, after validating this run's ledger.
 ## 2. Grade
 
 Run `grade --run <run_id>` and read only `complexity.json`, never the raw
-grader transcript. Independently record and justify your own complexity
-score; do not simply echo the grader's.
+grader transcript. Independently record and justify your own score; do not
+simply echo the grader's.
 
 ## 3. Resolve design (if needed)
 
@@ -61,9 +61,8 @@ immediately instead.
 
 ## 5. Approvals, then wave one
 
-Resolve every approval flag with the user via `decide-approval` before
-proceeding. Then run wave one and read only `checkpoint-1.json` first — not
-individual worker transcripts.
+Resolve every approval flag with the user via `decide-approval` first. Then
+run wave one and read only `checkpoint-1.json` — not worker transcripts.
 
 ## 6. Review wave one
 
@@ -80,8 +79,8 @@ a third wave — the transport structurally refuses it.
 Order Codex workers by installed skill name only (no `superpowers:` prefix,
 no `@` includes): `test-driven-development`, `systematic-debugging` when
 applicable, `receiving-code-review` for corrections, and
-`verification-before-completion`. Every order prohibits subagent-driven or
-parallel-agent skills — a worker is always alone.
+`verification-before-completion`. Every order prohibits subagent-driven and
+parallel-agent skills — a worker is always alone in its worktree.
 
 ## 8. Verify
 
@@ -94,13 +93,13 @@ host evidence, not your own belief that things look done.
 
 From the integration worktree, state **REQUIRED SUB-SKILL:** Use
 `superpowers:finishing-a-development-branch`, present its exact choices, and
-obtain fresh user consent. Call `choose-finish` **before** taking any
-action. `keep` is the no-external-action default. `merge` and `push`
-additionally require a `"target"` ref in the decision file — the ref the
-work lands on — because that is what `complete-finish` verifies the action
-against; it may not be this run's own integration branch. For merge/push/PR,
-constrain Superpowers to only the recorded action, never removing the
-integration worktree, then call `complete-finish` only after it succeeds.
-For discard, return to the original repository and call supervisor-owned
-`cleanup --mode discard` yourself — never let a methodology skill delete
-anything first. Later cleanup is separate, explicit, and clean-only.
+obtain fresh user consent. Call `choose-finish` **before** any action.
+`keep` is the no-external-action default. `merge` and `push` also require a
+`"target"` branch in the decision file — the branch the work lands on, which
+`complete-finish` verifies against and which may not be this run's own
+integration branch. For merge/push/PR, constrain Superpowers to the recorded
+action only, never removing the integration worktree, then call
+`complete-finish` once it succeeds. For discard, return to the original
+repository and call supervisor-owned `cleanup --mode discard` yourself —
+never let a methodology skill delete first. Later cleanup is separate,
+explicit, and clean-only.
