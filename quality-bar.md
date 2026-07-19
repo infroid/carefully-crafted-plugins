@@ -206,9 +206,29 @@ code; they are performed by Superpowers, invoked in place, every time:
   `receiving-code-review` for each Codex worker's own session,
   `superpowers:verification-before-completion` before any completion
   claim, and `superpowers:finishing-a-development-branch` for the
-  finish decision. `SKILL.md` hard-requires each by name at the point
-  it is needed (`**REQUIRED SUB-SKILL:**`), and the transport does not
-  advance without it.
+  finish decision.
+
+  **How strongly each half is enforced differs, and the difference
+  matters** — the worker side is machine-enforced, the Claude side is
+  not:
+
+  - **Codex-side: fail-closed.** `init` runs a Codex preflight and
+    throws before any run begins if the Codex-side Superpowers plugin
+    is missing, disabled, or missing a required worker skill
+    (`missing-`/`disabled-`/`incomplete-superpowers`). A worker
+    genuinely cannot run without it, and the transport never installs
+    or enables it on your behalf.
+  - **Claude-side: instructed and reviewed, not machine-gated.** The
+    `**REQUIRED SUB-SKILL:**` markers in `SKILL.md` are instructions to
+    Claude, not gates in the state machine. What the transport actually
+    enforces is narrower and structural: `accept-plan` requires a
+    committed, tracked, clean-worktree plan file — it does **not**
+    verify that `superpowers:writing-plans` produced it, and nothing
+    mechanically proves brainstorming or verification-before-completion
+    ran. Those rest on the skill body and on review.
+
+  This exception is granted on the delegation being *real*, not on it
+  being *unfalsifiable* — so the honest claim is the narrower one.
 - Carefully Crafted's own code — the private worktree allocator and
   the host verification runner — are **enforcement primitives, not
   replacement methodology**: they make no planning or completion

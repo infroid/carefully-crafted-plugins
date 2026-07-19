@@ -59,6 +59,21 @@ const REJECTED_STRINGS = Object.freeze([
   "zero claude context cost",
   "always-on context entirely",
   "always-on context and disables automatic invocation",
+  // PARAPHRASES of the same false claim. The three needles above pin the
+  // exact historical phrasings, which is a legitimate regression guard but
+  // is INCOMPLETE IN EXACTLY THE DIRECTION THAT ALREADY COST US ONCE: the
+  // original review grepped for "zero context cost", the live text said
+  // "zero CLAUDE context cost", the pattern matched nothing, and the
+  // surface was reported clean. Pinning "zero claude context cost" alone
+  // reproduces that blind spot mirrored -- it would sail straight past
+  // "zero context cost", one word away. Each needle below was proven to
+  // fire on a constructed positive before being added, and none collides
+  // with any existing text in the repo (checked wider than this corpus).
+  "zero context cost",
+  "no always-on",
+  "costs nothing until",
+  "add no tokens",
+  "adds no tokens",
   // Corpus-widening additions (final whole-branch review, item 4):
   // quality-bar.md was in NO scanned corpus until rootMarkdownPages() was
   // added above, and had gone stale on exactly these terms -- the v5 "forge"
@@ -75,6 +90,25 @@ const REJECTED_STRINGS = Object.freeze([
   "context-hub:",
 ]);
 
+// WHAT THIS NEEDLE SET DOES AND DOES NOT COVER -- do not over-trust a PASS.
+//
+// This is a FINITE list of literal substrings, not a semantic check. It
+// reliably catches (a) the exact removed-command spellings, and (b) the
+// specific false-context-cost phrasings enumerated above plus a handful of
+// probed paraphrases. It CANNOT catch an arbitrary restatement of the same
+// false idea -- "installed but weightless", "free until you call it", "the
+// description isn't loaded until invocation", and unbounded other phrasings
+// all pass cleanly today. Natural language has unbounded ways to assert
+// this, exactly as the Task 12 spec-coverage matcher's header notes for its
+// own problem.
+//
+// So: read a PASS as "no *recognized* phrasing of a known-false claim was
+// found", never as "these docs are proven honest". The defense against a
+// novel phrasing is review, not this file. Adding a needle here is cheap --
+// when a new false phrasing is found in review, pin it (prove it fires on
+// the offending text FIRST, then fix the text), rather than assuming the
+// existing needles would have caught it.
+//
 // Needles that are bare alphanumeric words (no "/", ":", ".", "-", or space)
 // are matched at WORD BOUNDARIES, not as a raw substring: "veo" as a plain
 // `.includes()` needle would false-positive on ordinary identifiers like
@@ -1069,4 +1103,42 @@ test("manifests, retained plugins, website, and tools contain none of the remove
     }
   }
   assert.deepEqual(offenders, [], `stale v5 references found outside all exemptions:\n${offenders.join("\n")}`);
+});
+
+test("the false-context-cost guard catches PARAPHRASES, not just the three historical phrasings", () => {
+  // Re-review finding, pinned. The original defect escaped because a grep
+  // for "zero context cost" missed the live "zero CLAUDE context cost".
+  // Pinning only the exact historical strings reproduces that blind spot
+  // mirrored -- so each of these must be caught. The last pair is the
+  // point: they differ by ONE WORD and must both fire.
+  const falseClaims = [
+    "no always-on cost until you invoke it",
+    "costs nothing until invoked",
+    "manual-only skills add no tokens to your context",
+    "a manual-only skill adds no tokens to the preamble",
+    "zero context cost until you explicitly run them",
+    "zero Claude context cost until you explicitly run them",
+  ];
+  for (const claim of falseClaims) {
+    const found = findRejected(claim);
+    assert.ok(
+      found.length > 0,
+      `this is a FALSE claim about disable-model-invocation and must be caught, but no needle fired: ${JSON.stringify(claim)}`
+    );
+  }
+
+  // The TRUE statements the surfaces actually make today must NOT be
+  // flagged -- otherwise the guard would force authors to write something
+  // false to get a green suite, which is the opposite of the point.
+  const trueStatements = [
+    "defers the skill body's cost until invocation and blocks automatic invocation",
+    "measured manual-only skills carry ~60-100 tok always-on, the same order as model-invocable ones",
+    "it does not remove the skill's name/description from Claude's always-on context",
+  ];
+  for (const statement of trueStatements) {
+    assert.deepEqual(
+      findRejected(statement), [],
+      `this is a TRUE, currently-shipping statement and must not be flagged: ${JSON.stringify(statement)}`
+    );
+  }
 });
