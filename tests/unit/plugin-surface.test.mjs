@@ -1,6 +1,6 @@
 // Locks the exact post-prune skill inventory for the v6 marketplace surface.
 // Reads plugins/<plugin>/skills/<skill>/SKILL.md discovery convention and
-// compares it against EXPECTED_SKILLS. Task 10 extends this same object
+// compares it against EXPECTED_SKILLS. Task 10 extended this same object
 // from nine skills to ten by adding "supervise" to the contexthub array.
 
 import { test } from "node:test";
@@ -15,7 +15,7 @@ const PLUGINS_DIR = path.join(REPO_ROOT, "plugins");
 const EXPECTED_SKILLS = Object.freeze({
   agy: ["exec", "nanobanana"],
   codex: ["exec", "imagegen", "reason", "resume", "review", "setup"],
-  contexthub: ["converge"],
+  contexthub: ["converge", "supervise"],
 });
 
 const REMOVED_SKILL_DIRS = Object.freeze([
@@ -76,4 +76,12 @@ test("the twelve retired skill directories no longer exist", () => {
     const dir = path.join(REPO_ROOT, relDir);
     assert.equal(fs.existsSync(dir), false, `expected ${relDir} to have been removed`);
   }
+});
+
+test("supervise carries disable-model-invocation: true (manual-only, /contexthub:supervise slash command only)", () => {
+  const skillMd = path.join(PLUGINS_DIR, "contexthub", "skills", "supervise", "SKILL.md");
+  const content = fs.readFileSync(skillMd, "utf8");
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  assert.ok(frontmatterMatch, "supervise/SKILL.md must have YAML frontmatter");
+  assert.match(frontmatterMatch[1], /^disable-model-invocation:\s*true\s*$/m);
 });
