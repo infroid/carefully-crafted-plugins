@@ -114,10 +114,39 @@ export async function beginTrackedOperation(options) {
 // getRunnableTasks
 // --------------------------------------------------------------------------
 
-export function getRunnableTasks(graph, completedTaskIds) {
+// WAVE IS THE PRIMARY FILTER, NOT depends_on.
+//
+// This previously filtered on `depends_on` alone. But `assertParallelSafe`
+// rejects ANY task with a non-empty `depends_on`, so for every graph the
+// system actually accepts, the dependency clause is vacuously true and this
+// degenerated to "every incomplete task" — including WAVE-2 tasks while
+// wave 1 was still running. The defect was invisible because its only test
+// used `depends_on: ["t1"]`, a shape no accepted graph can contain.
+//
+// v6's real runnability rule is the wave boundary: a task is runnable in
+// wave N when it belongs to wave N and has not already completed. The
+// dependency clause is retained beneath it as defense in depth — it is
+// vacuous for accepted graphs by construction, but keeping it means this
+// function stays correct rather than merely lucky if the wave model ever
+// widens.
+//
+// `wave` is REQUIRED. Making it optional would preserve exactly the
+// silently-wrong behavior this fix exists to remove.
+export function getRunnableTasks(graph, completedTaskIds, wave) {
+  if (wave !== 1 && wave !== 2) {
+    throw new SchedulerError(`getRunnableTasks: wave must be 1 or 2, got ${JSON.stringify(wave)} — filtering without a wave silently returns tasks from BOTH waves`);
+  }
   const completed = new Set(completedTaskIds ?? []);
   const tasks = graph?.tasks ?? [];
-  return tasks.filter((t) => !completed.has(t.id) && (t.depends_on ?? []).every((d) => completed.has(d)));
+  return tasks.filter((t) => {
+    // A correction graph's tasks carry no `wave` field of their own (the
+    // graph itself is `wave: 2`), so an absent per-task wave is treated as
+    // belonging to the graph's wave rather than excluded.
+    const taskWave = t.wave ?? graph?.wave ?? wave;
+    if (taskWave !== wave) return false;
+    if (completed.has(t.id)) return false;
+    return (t.depends_on ?? []).every((d) => completed.has(d));
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -165,13 +194,35 @@ export function assertParallelSafe(tasks) {
 // recommendedConcurrency
 // --------------------------------------------------------------------------
 
+// The plan's global constraint, verbatim: "Run at most three Codex workers
+// concurrently." This is a HARD CEILING, not advice — every concurrency
+// decision in this file passes through `clampConcurrency` below, so no
+// caller-supplied value and no default can exceed it. Exported so the bound
+// is a shared symbol rather than a number re-derived from prose in each
+// call site (the same discipline codex.mjs applies to its own policy
+// constants).
+export const MAX_WORKER_CONCURRENCY = 3;
+
 export function recommendedConcurrency(score) {
   if (!Number.isInteger(score) || score < 1 || score > 5) {
     throw new SchedulerError(`recommendedConcurrency: score must be an integer 1-5, got ${JSON.stringify(score)}`);
   }
   if (score === 1) return 1;
   if (score <= 3) return 2;
-  return 3;
+  return MAX_WORKER_CONCURRENCY;
+}
+
+// The single chokepoint that enforces MAX_WORKER_CONCURRENCY.
+//
+// `executeWave` previously fell back to `tasks.length` when `concurrency`
+// was omitted and honored any integer when it was supplied — so a 6-task
+// wave with no explicit concurrency launched 6 simultaneous Codex workers,
+// and an explicit `10` was obeyed. `recommendedConcurrency` capped at 3 but
+// nothing ever called it or clamped against it. Both paths now clamp here.
+export function clampConcurrency(requested, taskCount) {
+  const ceiling = Math.min(MAX_WORKER_CONCURRENCY, Math.max(1, taskCount));
+  if (!Number.isInteger(requested) || requested < 1) return ceiling;
+  return Math.min(requested, ceiling);
 }
 
 // --------------------------------------------------------------------------
@@ -234,6 +285,65 @@ export function assertReportVerificationCoverage(task, report) {
 }
 
 // --------------------------------------------------------------------------
+// buildTaskReceipt — the Step 6 host-authenticated receipt envelope
+// --------------------------------------------------------------------------
+
+// The brief's Step 6 specifies this exact envelope shape, and every field in
+// it is host-derived: `thread_id`/`usage` from the Codex JSONL accumulator,
+// `commit`/`actual_changed_files`/`ownership_valid` from git,
+// `process_exit_code` from the child process, `host_verification` from
+// verify.mjs. Only the nested `report` is the model's own claim, and it sits
+// clearly quarantined under its own key rather than being merged up into
+// host-derived fields.
+//
+// This exists because nothing else produced it: `taskResult` returns a loose
+// ad-hoc object, and `checkpoint.mjs:summarizeUsage` consumes a `receipts`
+// array that consequently had NO producer anywhere in the system. (The
+// brief's Interfaces block omits a receipt builder while its Step 6
+// specifies the shape verbatim; the shape is the thing that actually has to
+// exist, so it is built here.)
+//
+// A receipt is emitted for EVERY task, not only successful ones — see the
+// usage-preservation note in runOneTaskAndCommit.
+export function buildTaskReceipt(input) {
+  const {
+    taskId, workerOutcome, commit, changedFiles, ownershipValid,
+    hostVerification, report,
+  } = input ?? {};
+
+  const usage = workerOutcome?.usage ?? null;
+
+  return {
+    version: 1,
+    task_id: taskId,
+    thread_id: workerOutcome?.threadId ?? null,
+    usage: usage
+      ? {
+        input_tokens: usage.inputTokens ?? 0,
+        cached_input_tokens: usage.cachedInputTokens ?? 0,
+        output_tokens: usage.outputTokens ?? 0,
+        reasoning_output_tokens: usage.reasoningOutputTokens ?? 0,
+      }
+      : null,
+    commit: commit ?? null,
+    // The ONLY value this field ever takes. A commit in this system is
+    // created by the host, after verification, or it does not exist — there
+    // is deliberately no vocabulary here for a model-created commit.
+    commit_source: commit ? "host-after-verification" : null,
+    actual_changed_files: (changedFiles ?? []).slice(),
+    ownership_valid: ownershipValid === true,
+    process_exit_code: workerOutcome?.processExitCode ?? null,
+    host_verification: (hostVerification ?? []).map((v) => ({
+      id: v.id,
+      status: v.status,
+      exit_code: v.exitCode ?? null,
+      log_path: v.logPath ?? null,
+    })),
+    report: report ?? null,
+  };
+}
+
+// --------------------------------------------------------------------------
 // Per-task pipeline (internal) — the host-authoritative sequence between a
 // worker exiting and a task becoming integration-ready.
 // --------------------------------------------------------------------------
@@ -252,30 +362,55 @@ async function runOneTaskAndCommit(task, ctx) {
   try {
     wt = createTaskWorktree({ repoInfo, runId, worktreePaths, wave, taskId: task.id, baseCommit, resumeExactSourceTaskId });
   } catch (err) {
-    return taskResult(task.id, "BLOCKED", { reason: `worktree-setup-failed:${err.message}` });
+    return taskResult(task.id, "BLOCKED", { reason: `worktree-setup-failed:${err.message}`, receipt: buildTaskReceipt({ taskId: task.id }) });
   }
+
+  // COST EVIDENCE IS PRESERVED ON EVERY EXIT PATH.
+  //
+  // `workerOutcome` used to propagate only on the READY path, so thread ID
+  // and token usage were silently discarded for exactly the tasks that spent
+  // tokens and produced nothing (ownership failure, verification failure,
+  // invalid report, ineligible model status). That undercounted cost
+  // precisely where accounting matters most, and contradicted "the host is
+  // authoritative for thread ID and usage" — the data was in hand and thrown
+  // away. It is now captured in a closure variable the moment the worker
+  // returns and folded into a receipt on every single return below.
+  let workerOutcome = null;
+  let changes = null;
+  let verify = null;
+  let report = null;
+
+  const receiptFor = ({ commit = null, ownershipValid = false } = {}) => buildTaskReceipt({
+    taskId: task.id,
+    workerOutcome,
+    commit,
+    changedFiles: changes?.ok ? changes.changedPaths : [],
+    ownershipValid,
+    hostVerification: verify?.results ?? [],
+    report,
+  });
 
   try {
     // The worker itself is the ONE injected dependency — a real Codex call
     // in production, a fake in tests. Everything after this point is
     // host-derived from git and the (cross-checked) report; nothing here
     // ever trusts workerOutcome.report's claims about WHAT changed.
-    const workerOutcome = await runWorker(task, { worktreePath: wt.path, baseCommit, branch: wt.branch });
+    workerOutcome = await runWorker(task, { worktreePath: wt.path, baseCommit, branch: wt.branch });
 
     // Host-authoritative ownership derivation (git.mjs). A worker that
     // stages, moves HEAD, or touches anything outside write_paths is
     // rejected here, before verification or a host commit is ever
     // considered.
-    const changes = inspectTaskChanges({ worktreePath: wt.path, baseCommit, writePaths: task.write_paths });
+    changes = inspectTaskChanges({ worktreePath: wt.path, baseCommit, writePaths: task.write_paths });
     if (!changes.ok) {
-      return taskResult(task.id, "BLOCKED", { reason: `ownership-check-failed:${changes.reason}`, worktreePath: wt.path, branch: wt.branch, detail: changes });
+      return taskResult(task.id, "BLOCKED", { reason: `ownership-check-failed:${changes.reason}`, worktreePath: wt.path, branch: wt.branch, detail: changes, workerOutcome, receipt: receiptFor() });
     }
 
     // Host-owned verification, in the worker worktree, after the model
     // exits and before any commit. A non-zero/timeout result, or any
     // mutation of the pre-verification fingerprint, blocks unconditionally
     // — independent of whatever the model claims.
-    const verify = await runVerificationSet({
+    verify = await runVerificationSet({
       commands: task.verify,
       worktreePath: wt.path,
       approvals,
@@ -289,7 +424,7 @@ async function runOneTaskAndCommit(task, ctx) {
       },
     });
     if (!verify.allPass) {
-      return taskResult(task.id, "BLOCKED", { reason: verify.residue ? "verification-diff-residue" : "verification-failed", worktreePath: wt.path, branch: wt.branch, verify });
+      return taskResult(task.id, "BLOCKED", { reason: verify.residue ? "verification-diff-residue" : "verification-failed", worktreePath: wt.path, branch: wt.branch, verify, workerOutcome, receipt: receiptFor() });
     }
 
     // Re-validate the model's report shape independently (defense in
@@ -298,12 +433,11 @@ async function runOneTaskAndCommit(task, ctx) {
     // object in-process rather than parsing it from JSON), then close the
     // verification-ID gap contracts.mjs cannot see.
     const rawReport = workerOutcome?.report ?? null;
-    let report = null;
     if (rawReport !== null) {
       try {
         report = validateWorkerReport(rawReport, task.acceptance_ids);
       } catch (err) {
-        return taskResult(task.id, "BLOCKED", { reason: `invalid-worker-report:${err.message}`, worktreePath: wt.path, branch: wt.branch, verify });
+        return taskResult(task.id, "BLOCKED", { reason: `invalid-worker-report:${err.message}`, worktreePath: wt.path, branch: wt.branch, verify, workerOutcome, receipt: receiptFor() });
       }
       // The coverage cross-check only makes sense for a report CLAIMING
       // success — NEEDS_CONTEXT/BLOCKED explicitly means "did not get far
@@ -318,7 +452,7 @@ async function runOneTaskAndCommit(task, ctx) {
     if (reportStatus !== "DONE" && reportStatus !== "DONE_WITH_CONCERNS") {
       // NEEDS_CONTEXT and BLOCKED (and a missing report entirely) never
       // commit or integrate.
-      return taskResult(task.id, "BLOCKED", { reason: `model-status-${reportStatus ?? "missing"}`, worktreePath: wt.path, branch: wt.branch, verify, report });
+      return taskResult(task.id, "BLOCKED", { reason: `model-status-${reportStatus ?? "missing"}`, worktreePath: wt.path, branch: wt.branch, verify, report, workerOutcome, receipt: receiptFor() });
     }
 
     // Only now — ownership proven, host verification passed, model status
@@ -330,17 +464,29 @@ async function runOneTaskAndCommit(task, ctx) {
 
     const commitInspect = inspectTaskCommit({ worktreePath: wt.path, baseCommit, commit: commitInfo.commit });
     if (!commitInspect.ok) {
-      return taskResult(task.id, "BLOCKED", { reason: "commit-not-clean-or-not-single", worktreePath: wt.path, branch: wt.branch, commitInspect });
+      return taskResult(task.id, "BLOCKED", { reason: "commit-not-clean-or-not-single", worktreePath: wt.path, branch: wt.branch, commitInspect, workerOutcome, receipt: receiptFor({ commit: commitInfo.commit }) });
     }
-    assertCommitOwnership({
+    const ownership = assertCommitOwnership({
       worktreePath: wt.path, baseCommit, commit: commitInfo.commit, writePaths: task.write_paths, expectedFingerprint: changes.fingerprint,
     });
 
     return taskResult(task.id, "READY", {
       commit: commitInfo.commit, worktreePath: wt.path, branch: wt.branch, verify, changes, workerOutcome, report,
+      receipt: buildTaskReceipt({
+        taskId: task.id,
+        workerOutcome,
+        commit: commitInfo.commit,
+        // Ownership comes from the FINISHED commit's own diff, not from the
+        // pre-commit working-tree scan — the authoritative record of what
+        // actually landed.
+        changedFiles: ownership.files,
+        ownershipValid: true,
+        hostVerification: verify.results,
+        report,
+      }),
     });
   } catch (err) {
-    return taskResult(task.id, "BLOCKED", { reason: `exception:${err.message}`, worktreePath: wt.path, branch: wt.branch });
+    return taskResult(task.id, "BLOCKED", { reason: `exception:${err.message}`, worktreePath: wt.path, branch: wt.branch, workerOutcome, receipt: receiptFor() });
   }
 }
 
@@ -388,6 +534,46 @@ export async function executeWave(options) {
   }
   assertParallelSafe(tasks);
 
+  // IDENTITY IS CHECKED BEFORE DISPATCH, NOT AT COMMIT TIME.
+  //
+  // `createTaskCommit` also refuses without a usable identity, but that is
+  // the LAST step of a task — by then the full worker cost for the entire
+  // wave has already been paid, and every task fails identically for a
+  // reason that was knowable before any of them started. The brief requires
+  // a usable author/committer identity "before worker dispatch"; this is
+  // that gate. `inspectRepository` already computed it and supplies an
+  // actionable message, so this surfaces the prerequisite error verbatim
+  // rather than inventing a second wording for the same condition.
+  if (repoInfo && repoInfo.identityOk === false) {
+    throw new SchedulerError(`executeWave: refusing to dispatch workers — ${repoInfo.prerequisiteError ?? "Git author/committer identity is not usable"}`);
+  }
+
+  // BASE-COMMIT OWNERSHIP LANDS HERE.
+  //
+  // git.mjs deliberately defers the base rule to "the scheduler", and
+  // executeWave previously deferred it to *its* caller, so no layer actually
+  // owned it. This is the layer that can check it: a wave's tasks branch
+  // from `baseCommit`, and the candidate is built on the integration
+  // worktree's current HEAD, so those two must agree — otherwise every task
+  // commit is rooted somewhere the candidate cannot fast-forward from, and
+  // the only symptom is a whole-wave discard at integration time, long after
+  // the cost is spent.
+  //
+  // Wave 1: baseCommit MUST equal the current integration HEAD (the
+  // post-planning HEAD). Wave 2: the same equality holds, because by then
+  // the integration HEAD *is* the fully-integrated wave-one HEAD. A caller
+  // that genuinely intends to run against a stale base (recovery replay,
+  // some deliberate re-run) must say so explicitly via `allowBaseDrift`
+  // rather than having it pass silently.
+  const integrationHeadAtStart = readHead(integrationWorktreePath);
+  if (baseCommit !== integrationHeadAtStart && options.allowBaseDrift !== true) {
+    throw new SchedulerError(
+      `executeWave: wave-${wave} baseCommit ${baseCommit} does not match the integration worktree HEAD ${integrationHeadAtStart}. `
+      + `Wave-one tasks must branch from the post-planning integration HEAD and wave-two tasks from the fully-integrated wave-one HEAD; `
+      + `a mismatched base surfaces only as a whole-wave discard at integration time. Pass allowBaseDrift: true to override deliberately.`,
+    );
+  }
+
   // Central design decision, applied here (see the module header). Only
   // engaged when the caller opts in — scheduler.mjs tests that only care
   // about wave semantics do not need a run ledger at all.
@@ -403,7 +589,9 @@ export async function executeWave(options) {
     });
   }
 
-  const effectiveConcurrency = Number.isInteger(concurrency) && concurrency > 0 ? concurrency : tasks.length;
+  // Item 3's hard cap: an omitted `concurrency` no longer means
+  // "tasks.length", and an over-cap request is clamped rather than honored.
+  const effectiveConcurrency = clampConcurrency(concurrency, tasks.length);
 
   const outcomes = await runPool(tasks, effectiveConcurrency, (task) => runOneTaskAndCommit(task, {
     repoInfo, runId, wave, baseCommit, worktreePaths, runWorker, approvals, logsDir,
@@ -412,7 +600,7 @@ export async function executeWave(options) {
 
   const taskResults = outcomes.map((o, i) => (o.ok
     ? o.value
-    : taskResult(tasks[i].id, "BLOCKED", { reason: `internal-error:${o.error?.message ?? "unknown"}` })));
+    : taskResult(tasks[i].id, "BLOCKED", { reason: `internal-error:${o.error?.message ?? "unknown"}`, receipt: buildTaskReceipt({ taskId: tasks[i].id }) })));
 
   const readyResults = taskResults
     .filter((r) => r.status === "READY")
@@ -424,22 +612,68 @@ export async function executeWave(options) {
     return { wave, taskResults, integratedTaskIds: [], integrationHead: preWaveHead, published: false, conflict: null };
   }
 
-  const candidate = createCandidateIntegration({ repoInfo, runId, worktreePaths, wave, integrationHead: preWaveHead });
+  // TASK RESULTS ARE NEVER LOST TO AN INTEGRATION-PHASE THROW.
+  //
+  // Candidate creation and publication were previously unguarded, so ANY
+  // throw — a ledger collision left by a prior crashed wave, the
+  // expectedPreHead drift check, a failed `worktree remove` even AFTER a
+  // successful merge — propagated out of executeWave and discarded the
+  // entire taskResults array with it. Commits survive on their task
+  // branches, but reports, usage, thread IDs, verification results, and log
+  // paths do not, and none of that is re-derivable from git. Everything from
+  // here on therefore returns a result carrying taskResults rather than
+  // throwing.
+  const integrationFailure = (reason, err, extra = {}) => ({
+    wave,
+    taskResults,
+    integratedTaskIds: [],
+    integrationHead: preWaveHead,
+    published: false,
+    conflict: null,
+    integrationError: { reason, message: err?.message ?? String(err) },
+    ...extra,
+  });
+
+  let candidate;
+  try {
+    candidate = createCandidateIntegration({ repoInfo, runId, worktreePaths, wave, integrationHead: preWaveHead });
+  } catch (err) {
+    return integrationFailure("candidate-creation-failed", err);
+  }
+
   const integratedTaskIds = [];
   let conflict = null;
 
-  for (const r of readyResults) {
-    const pick = integrateCandidateCommit({ candidate, commit: r.commit });
-    if (!pick.ok) {
-      conflict = { taskId: r.taskId, commit: r.commit, stderr: pick.stderr };
-      break;
+  try {
+    for (const r of readyResults) {
+      const pick = integrateCandidateCommit({ candidate, commit: r.commit });
+      if (!pick.ok) {
+        conflict = { taskId: r.taskId, commit: r.commit, stderr: pick.stderr };
+        break;
+      }
+      // An empty pick means this commit's content was ALREADY present on the
+      // integration branch (a recovery re-entry, or a content-equivalent
+      // change). That is a success, not a conflict — it still counts as
+      // integrated, and the wave proceeds.
+      integratedTaskIds.push(r.taskId);
     }
-    integratedTaskIds.push(r.taskId);
+  } catch (err) {
+    // A throw mid-cherry-pick leaves the candidate in an unknown state; try
+    // to clean it up so the next attempt is not blocked by the idempotency
+    // gate, but never let cleanup failure mask the original error.
+    try {
+      abortCandidateIntegration({ repoInfo, candidate, reason: `exception during candidate integration: ${err.message}` });
+    } catch { /* cleanup is best-effort — the original failure is what matters */ }
+    return integrationFailure("candidate-integration-threw", err);
   }
 
   if (conflict) {
     const logPath = join(logsDir, `candidate-w${wave}-conflict.log`);
-    abortCandidateIntegration({ repoInfo, candidate, logPath, reason: `cherry-pick conflict on task "${conflict.taskId}" (commit ${conflict.commit})` });
+    try {
+      abortCandidateIntegration({ repoInfo, candidate, logPath, reason: `cherry-pick conflict on task "${conflict.taskId}" (commit ${conflict.commit})` });
+    } catch (err) {
+      return integrationFailure("candidate-abort-failed", err, { conflict, candidateLogPath: logPath });
+    }
 
     // Every READY task's commit — including the ones that cherry-picked
     // successfully into the now-discarded candidate — did not, in fact,
@@ -453,7 +687,43 @@ export async function executeWave(options) {
     return { wave, taskResults: finalTaskResults, integratedTaskIds: [], integrationHead: preWaveHead, published: false, conflict, candidateLogPath: logPath };
   }
 
-  const publish = publishCandidateIntegration({ repoInfo, integrationWorktreePath, candidate, expectedPreHead: preWaveHead });
+  let publish;
+  try {
+    publish = publishCandidateIntegration({ repoInfo, integrationWorktreePath, candidate, expectedPreHead: preWaveHead });
+  } catch (err) {
+    // THE PRE-CHECK PATH LEAKS IF NOT CLEANED UP. When publication fails
+    // BEFORE the merge (the expectedPreHead drift check, or the clean-status
+    // check), the candidate worktree, branch, and ledger entry all survive —
+    // and the next attempt at this same wave then fails the idempotency
+    // gate on a collision it can't explain. Clean up so a retry starts
+    // fresh. Whether the merge itself already landed is determined by
+    // comparing HEAD, not assumed: if it did, the candidate is now an
+    // ancestor and removing it is still correct.
+    try {
+      abortCandidateIntegration({ repoInfo, candidate, reason: `publication failed: ${err.message}` });
+    } catch { /* best-effort cleanup */ }
+
+    // A post-merge failure (e.g. `worktree remove` failing after the merge
+    // already succeeded) must NOT be reported as an unpublished wave — the
+    // integration branch genuinely moved. Re-read HEAD and report honestly.
+    let headNow = preWaveHead;
+    try {
+      headNow = readHead(integrationWorktreePath);
+    } catch { /* fall back to preWaveHead */ }
+
+    if (headNow !== preWaveHead) {
+      return {
+        wave,
+        taskResults,
+        integratedTaskIds,
+        integrationHead: headNow,
+        published: true,
+        conflict: null,
+        integrationError: { reason: "post-merge-cleanup-failed", message: err.message },
+      };
+    }
+    return integrationFailure("publish-failed", err);
+  }
 
   return { wave, taskResults, integratedTaskIds, integrationHead: publish.head, published: true, conflict: null };
 }

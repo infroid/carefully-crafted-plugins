@@ -27,7 +27,11 @@ import {
   assertReportVerificationCoverage,
   effectiveSessionPolicy,
   buildCodexWorker,
+  buildTaskReceipt,
+  clampConcurrency,
+  MAX_WORKER_CONCURRENCY,
 } from "../../plugins/contexthub/scripts/supervise/scheduler.mjs";
+import { summarizeUsage } from "../../plugins/contexthub/scripts/supervise/checkpoint.mjs";
 import {
   inspectRepository, ensurePrivateWorktreeRoot, createIntegrationWorktree,
   readHead, isWorktreeClean, isCommitIntegrated,
@@ -161,6 +165,44 @@ describe("recommendedConcurrency", () => {
     assert.throws(() => recommendedConcurrency(6), SchedulerError);
     assert.throws(() => recommendedConcurrency(2.5), SchedulerError);
   });
+  test("never exceeds the global MAX_WORKER_CONCURRENCY cap", () => {
+    for (let score = 1; score <= 5; score++) {
+      assert.ok(recommendedConcurrency(score) <= MAX_WORKER_CONCURRENCY);
+    }
+  });
+});
+
+describe("clampConcurrency — the plan's verbatim 'at most three Codex workers concurrently'", () => {
+  test("MAX_WORKER_CONCURRENCY is 3", () => {
+    assert.equal(MAX_WORKER_CONCURRENCY, 3);
+  });
+
+  test("an OVER-CAP request is clamped to 3, never honored", () => {
+    assert.equal(clampConcurrency(10, 6), 3);
+    assert.equal(clampConcurrency(100, 50), 3);
+    assert.equal(clampConcurrency(4, 6), 3);
+  });
+
+  test("an OMITTED value defaults to the cap, never to tasks.length", () => {
+    assert.equal(clampConcurrency(undefined, 6), 3);
+    assert.equal(clampConcurrency(null, 12), 3);
+  });
+
+  test("an under-cap request is honored as-is", () => {
+    assert.equal(clampConcurrency(1, 6), 1);
+    assert.equal(clampConcurrency(2, 6), 2);
+  });
+
+  test("never exceeds the task count (no point starting more workers than tasks)", () => {
+    assert.equal(clampConcurrency(3, 1), 1);
+    assert.equal(clampConcurrency(undefined, 2), 2);
+  });
+
+  test("invalid values (0, negative, non-integer) fall back to the cap rather than disabling concurrency", () => {
+    assert.equal(clampConcurrency(0, 6), 3);
+    assert.equal(clampConcurrency(-5, 6), 3);
+    assert.equal(clampConcurrency(2.7, 6), 3);
+  });
 });
 
 // --------------------------------------------------------------------------
@@ -168,11 +210,62 @@ describe("recommendedConcurrency", () => {
 // --------------------------------------------------------------------------
 
 describe("getRunnableTasks", () => {
-  test("returns tasks whose dependencies are all completed and are not themselves completed", () => {
-    const graph = { tasks: [makeTask({ id: "t1", depends_on: [] }), makeTask({ id: "t2", depends_on: ["t1"] })] };
-    assert.deepEqual(getRunnableTasks(graph, []).map((t) => t.id), ["t1"]);
-    assert.deepEqual(getRunnableTasks(graph, ["t1"]).map((t) => t.id), ["t2"]);
-    assert.deepEqual(getRunnableTasks(graph, ["t1", "t2"]).map((t) => t.id), []);
+  // These graphs use `depends_on: []` throughout — the ONLY shape
+  // assertParallelSafe (and contracts.mjs) actually accepts. The previous
+  // test used `depends_on: ["t1"]`, which no accepted graph can contain,
+  // and that is precisely why it hid the wave-filtering defect.
+  function mixedWaveGraph() {
+    return {
+      tasks: [
+        makeTask({ id: "w1a", wave: 1, write_paths: ["a.txt"] }),
+        makeTask({ id: "w1b", wave: 1, write_paths: ["b.txt"] }),
+        makeTask({ id: "w2a", wave: 2, write_paths: ["c.txt"] }),
+      ],
+    };
+  }
+
+  test("returns only the requested wave's tasks — a wave-2 task is NOT runnable during wave 1", () => {
+    const graph = mixedWaveGraph();
+    assert.deepEqual(getRunnableTasks(graph, [], 1).map((t) => t.id), ["w1a", "w1b"]);
+    assert.deepEqual(getRunnableTasks(graph, [], 2).map((t) => t.id), ["w2a"]);
+  });
+
+  test("excludes already-completed tasks within the requested wave", () => {
+    const graph = mixedWaveGraph();
+    assert.deepEqual(getRunnableTasks(graph, ["w1a"], 1).map((t) => t.id), ["w1b"]);
+    assert.deepEqual(getRunnableTasks(graph, ["w1a", "w1b"], 1).map((t) => t.id), []);
+    // Completing wave 1 does not make wave 2 runnable under a wave-1 query.
+    assert.deepEqual(getRunnableTasks(graph, ["w1a", "w1b"], 1).map((t) => t.id), []);
+    assert.deepEqual(getRunnableTasks(graph, ["w1a", "w1b"], 2).map((t) => t.id), ["w2a"]);
+  });
+
+  test("a correction graph's tasks (no per-task wave field, graph-level wave: 2) are treated as wave 2", () => {
+    const correctionGraph = {
+      wave: 2,
+      tasks: [
+        { ...makeTask({ id: "fix-a", write_paths: ["a.txt"] }), wave: undefined },
+        { ...makeTask({ id: "fix-b", write_paths: ["b.txt"] }), wave: undefined },
+      ],
+    };
+    assert.deepEqual(getRunnableTasks(correctionGraph, [], 2).map((t) => t.id), ["fix-a", "fix-b"]);
+    assert.deepEqual(getRunnableTasks(correctionGraph, [], 1).map((t) => t.id), []);
+  });
+
+  test("requires an explicit wave — omitting it would silently return both waves' tasks", () => {
+    const graph = mixedWaveGraph();
+    assert.throws(() => getRunnableTasks(graph, []), SchedulerError);
+    assert.throws(() => getRunnableTasks(graph, [], 3), SchedulerError);
+  });
+
+  test("REGRESSION: for a graph the system would actually accept (every depends_on empty), wave filtering is the only thing separating the waves", () => {
+    const graph = mixedWaveGraph();
+    // Every task has an empty depends_on, so the dependency clause is
+    // vacuously true for all three. If wave were ignored, this would return
+    // all 3 tasks — the exact defect this fix closes.
+    assert.ok(graph.tasks.every((t) => t.depends_on.length === 0));
+    const wave1 = getRunnableTasks(graph, [], 1);
+    assert.equal(wave1.length, 2);
+    assert.ok(!wave1.some((t) => t.id === "w2a"), "a wave-2 task must never be runnable during wave 1");
   });
 });
 
@@ -579,6 +672,12 @@ describe("executeWave", () => {
     ];
     const result = await executeWave({
       repoInfo: info, runId, wave: 2, tasks, baseCommit: originalHead,
+      // This test's whole point is a STALE base (simulating recovered or
+      // out-of-date wave-two planning), which is exactly the deliberate
+      // override the base-commit guard exists to make explicit rather than
+      // silent. Without this flag the guard would (correctly) reject the
+      // wave before the conflict this test exists to produce.
+      allowBaseDrift: true,
       worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 2,
       runWorker: async (task, ctx) => {
         const content = task.id === "c-task" ? "c-task change\n" : "z-task conflicting change\n";
@@ -613,6 +712,226 @@ describe("executeWave", () => {
       worktreePaths, integrationWorktreePath: integ.path, logsDir,
       runWorker: async () => { throw new Error("must never be called"); },
     }), SchedulerError);
+  });
+
+  test("CONCURRENCY CAP: an omitted concurrency never launches more than 3 workers at once, even for a 6-task wave", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const tasks = ["t1", "t2", "t3", "t4", "t5", "t6"].map((id) => makeTask({ id, write_paths: [`${id}.txt`] }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    await executeWave({
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      // concurrency deliberately OMITTED — previously this meant tasks.length
+      runWorker: async (task, ctx) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 25));
+        inFlight -= 1;
+        return goodWorker({ [task.write_paths[0]]: `${task.id}\n` })(task, ctx);
+      },
+    });
+
+    assert.ok(maxInFlight <= MAX_WORKER_CONCURRENCY, `expected at most ${MAX_WORKER_CONCURRENCY} concurrent workers, observed ${maxInFlight}`);
+  });
+
+  test("CONCURRENCY CAP: an explicit over-cap request (10) is clamped, not honored", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const tasks = ["t1", "t2", "t3", "t4", "t5", "t6"].map((id) => makeTask({ id, write_paths: [`${id}.txt`] }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    await executeWave({
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 10,
+      runWorker: async (task, ctx) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 25));
+        inFlight -= 1;
+        return goodWorker({ [task.write_paths[0]]: `${task.id}\n` })(task, ctx);
+      },
+    });
+
+    assert.ok(maxInFlight <= MAX_WORKER_CONCURRENCY, `expected at most ${MAX_WORKER_CONCURRENCY} concurrent workers, observed ${maxInFlight}`);
+  });
+
+  test("IDENTITY GATE: a repo with unusable git identity is rejected BEFORE any worker is dispatched", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const unusableIdentityInfo = { ...info, identityOk: false, prerequisiteError: "Git author/committer identity is not usable (test)" };
+    let dispatched = false;
+
+    await assert.rejects(executeWave({
+      repoInfo: unusableIdentityInfo, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: info.headCommit, worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: async () => { dispatched = true; throw new Error("must never be called"); },
+    }), SchedulerError);
+
+    assert.equal(dispatched, false, "no worker may be dispatched when the identity prerequisite fails");
+  });
+
+  test("BASE-COMMIT GUARD: a wave whose baseCommit does not match the integration HEAD is rejected before dispatch", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    let dispatched = false;
+
+    await assert.rejects(executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: "0".repeat(40), // a base that is not the integration HEAD
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: async () => { dispatched = true; throw new Error("must never be called"); },
+    }), SchedulerError);
+
+    assert.equal(dispatched, false, "a stale base must fail fast, before worker cost is incurred");
+  });
+
+  test("BASE-COMMIT GUARD: allowBaseDrift:true permits a deliberate stale-base run", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    // Advance the integration HEAD so baseCommit is genuinely stale.
+    writeFileSync(join(integ.path, "drift.txt"), "drift\n");
+    git(integ.path, ["add", "-A"]);
+    git(integ.path, ["commit", "-qm", "drift"]);
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: info.headCommit, allowBaseDrift: true,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: goodWorker({ "a.txt": "change\n" }),
+    });
+    assert.equal(result.published, true);
+  });
+
+  test("USAGE PRESERVED ON FAILURE: thread ID and token usage survive on every failing path, not just READY", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const usage = { inputTokens: 1000, cachedInputTokens: 200, outputTokens: 50, reasoningOutputTokens: 25 };
+    const threadId = "0199a213-81c0-7800-8aa1-bbab2a035a53";
+
+    // Out-of-scope write => ownership failure, AFTER the worker spent tokens.
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: info.headCommit, worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: async (task, ctx) => {
+        writeFileSync(join(ctx.worktreePath, "a.txt"), "in scope\n");
+        writeFileSync(join(ctx.worktreePath, "b.txt"), "OUT OF SCOPE\n");
+        return { processExitCode: 0, threadId, usage, report: null };
+      },
+    });
+
+    const r = result.taskResults[0];
+    assert.equal(r.status, "BLOCKED");
+    assert.match(r.reason, /ownership-check-failed/);
+    // The cost evidence must NOT have been discarded.
+    assert.equal(r.receipt.thread_id, threadId);
+    assert.equal(r.receipt.usage.input_tokens, 1000);
+    assert.equal(r.receipt.usage.output_tokens, 50);
+    assert.equal(r.receipt.ownership_valid, false);
+    assert.equal(r.receipt.commit, null);
+  });
+
+  test("RECEIPT ENVELOPE: a successful task produces the full Step 6 host-authenticated shape", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const usage = { inputTokens: 18420, cachedInputTokens: 12000, outputTokens: 1730, reasoningOutputTokens: 450 };
+    const threadId = "0199a213-81c0-7800-8aa1-bbab2a035a53";
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: info.headCommit, worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: async (task, ctx) => {
+        const base = await goodWorker({ "a.txt": "change\n" })(task, ctx);
+        return { ...base, threadId, usage };
+      },
+    });
+
+    const receipt = result.taskResults[0].receipt;
+    // Every field from the brief's Step 6 envelope, present and host-derived.
+    assert.equal(receipt.version, 1);
+    assert.equal(receipt.task_id, "t1");
+    assert.equal(receipt.thread_id, threadId);
+    assert.deepEqual(receipt.usage, { input_tokens: 18420, cached_input_tokens: 12000, output_tokens: 1730, reasoning_output_tokens: 450 });
+    assert.match(receipt.commit, /^[0-9a-f]{40}$/);
+    assert.equal(receipt.commit_source, "host-after-verification");
+    assert.deepEqual(receipt.actual_changed_files, ["a.txt"]);
+    assert.equal(receipt.ownership_valid, true);
+    assert.equal(receipt.process_exit_code, 0);
+    assert.equal(receipt.host_verification.length, 1);
+    assert.equal(receipt.host_verification[0].status, "PASS");
+    assert.match(receipt.host_verification[0].log_path, /\.log$/);
+    assert.equal(receipt.report.status, "DONE");
+  });
+
+  test("RECEIPT ENVELOPE: receipts from a wave feed summarizeUsage directly — closing the producer gap", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const tasks = [makeTask({ id: "t1", write_paths: ["a.txt"] }), makeTask({ id: "t2", write_paths: ["b.txt"] })];
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 2,
+      runWorker: async (task, ctx) => {
+        const base = await goodWorker({ [task.write_paths[0]]: `${task.id}\n` })(task, ctx);
+        return { ...base, threadId: "0199a213-81c0-7800-8aa1-bbab2a035a53", usage: { inputTokens: 100, cachedInputTokens: 10, outputTokens: 20, reasoningOutputTokens: 5 } };
+      },
+    });
+
+    const receipts = result.taskResults.map((r) => r.receipt);
+    const totals = summarizeUsage(receipts);
+    assert.equal(totals.receipt_count, 2);
+    assert.equal(totals.input_tokens, 200);
+    assert.equal(totals.cached_input_tokens, 20);
+    assert.equal(totals.output_tokens, 40);
+    assert.equal(totals.reasoning_output_tokens, 10);
+  });
+
+  test("INTEGRATION-PHASE THROW: taskResults survive a candidate-creation failure rather than being discarded", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const task = makeTask({ id: "t1", write_paths: ["a.txt"] });
+
+    // Force a candidate collision: pre-create the candidate branch that
+    // executeWave will try to create, WITHOUT a matching ledger entry — the
+    // exact "prior crashed wave" shape that trips the idempotency gate.
+    git(info.topLevel, ["branch", `carefully-crafted/${runId}/candidate-w1`, info.headCommit]);
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [task], baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: goodWorker({ "a.txt": "change\n" }),
+    });
+
+    // The wave did not publish — but the expensive per-task evidence is intact.
+    assert.equal(result.published, false);
+    assert.ok(result.integrationError, "an integrationError must be reported");
+    assert.equal(result.integrationError.reason, "candidate-creation-failed");
+    assert.equal(result.taskResults.length, 1);
+    assert.equal(result.taskResults[0].status, "READY");
+    assert.match(result.taskResults[0].commit, /^[0-9a-f]{40}$/);
+    assert.ok(result.taskResults[0].receipt, "the receipt (usage, thread ID, verification) must survive");
+    assert.equal(result.integrationHead, readHead(integ.path));
+  });
+
+  test("RECOVERY: a task commit that was never published still exists on its own task branch and is discoverable", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const task = makeTask({ id: "t1", write_paths: ["a.txt"] });
+
+    // Same forced candidate collision: the wave fails to publish, but the
+    // host commit was already created on the task branch beforehand.
+    git(info.topLevel, ["branch", `carefully-crafted/${runId}/candidate-w1`, info.headCommit]);
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [task], baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: goodWorker({ "a.txt": "survives\n" }),
+    });
+
+    assert.equal(result.published, false);
+    const r = result.taskResults[0];
+    assert.equal(r.status, "READY");
+
+    // THE RECOVERY-RELEVANT ASSERTION: the commit is NOT on the integration
+    // branch (the wave never published) but IS reachable on its own task
+    // branch, so a recovery pass can find it instead of re-running the task.
+    assert.equal(isCommitIntegrated({ repoInfo: info, ref: integ.branch, commit: r.commit }), false);
+    const onTaskBranch = git(info.topLevel, ["rev-list", r.branch]).split("\n");
+    assert.ok(onTaskBranch.includes(r.commit), "the commit must survive on its task branch for recovery");
+    assert.equal(git(info.topLevel, ["log", "-1", "--format=%s", r.commit]), `supervise(${runId}): t1`);
   });
 
   test("operationTracking, when supplied, calls beginTrackedOperation with the host pid before running the pool", async () => {

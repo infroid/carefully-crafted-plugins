@@ -42,12 +42,12 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync,
-  lstatSync, openSync, closeSync, fsyncSync,
+  openSync, closeSync, fsyncSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname, resolve, sep, isAbsolute } from "node:path";
+import { join, dirname, resolve, isAbsolute } from "node:path";
 
-import { ContractError, validateIdentifier } from "./contracts.mjs";
+import { validateIdentifier } from "./contracts.mjs";
 
 export class GitError extends Error {
   constructor(message) {
@@ -141,15 +141,59 @@ function existingPathspecs(worktreePath, writePaths) {
   });
 }
 
-function parseNameStatus(text) {
-  return text.split("\n").filter(Boolean).map((line) => {
-    const parts = line.split("\t");
-    const status = parts[0];
+// PATHS ARE PARSED FROM NUL-DELIMITED OUTPUT, NEVER NEWLINE-DELIMITED.
+//
+// Without `-z`, git applies `core.quotePath` (default true) and returns a
+// path containing any non-ASCII byte as a C-quoted, octal-escaped string:
+// a real `src/café.txt` comes back literally as `"src/caf\303\251.txt"`,
+// surrounding quotes included. `pathIsWithin("\"src/caf\\303\\251.txt\"",
+// "src/")` is then false, so a task that legitimately touched such a file
+// was rejected as an out-of-scope violation that never happened. It failed
+// CLOSED (no security hole), but it made any task touching a non-ASCII
+// filename impossible to complete while pointing the operator at a
+// nonexistent scope violation.
+//
+// `-z` bypasses quoting entirely and emits raw bytes with NUL separators,
+// so this is the only correct way to read a path out of git. Every path
+// this module parses goes through a -z form.
+
+// `git diff --name-status -z` emits: <status>NUL<path>NUL for ordinary
+// changes, and <status>NUL<oldPath>NUL<newPath>NUL for renames/copies —
+// i.e. the record length itself depends on the status code, which is why
+// this is a sequential walk rather than a simple pairwise chunk.
+function parseNameStatusZ(text) {
+  const fields = text.split("\0").filter((f) => f.length > 0);
+  const out = [];
+  let i = 0;
+  while (i < fields.length) {
+    const status = fields[i];
     if (status.startsWith("R") || status.startsWith("C")) {
-      return { status, path: parts[1], path2: parts[2] };
+      out.push({ status, path: fields[i + 1], path2: fields[i + 2] });
+      i += 3;
+    } else {
+      out.push({ status, path: fields[i + 1] });
+      i += 2;
     }
-    return { status, path: parts[1] };
-  });
+  }
+  return out;
+}
+
+function parseZPaths(text) {
+  return text.split("\0").filter((f) => f.length > 0);
+}
+
+// Resolves a per-worktree git metadata path (e.g. CHERRY_PICK_HEAD) to an
+// absolute path. `--git-path` returns a RELATIVE path in a normal
+// repository and an absolute one under a linked worktree, so the result is
+// resolved against the invoking cwd rather than assumed to be either.
+function gitMetaPath(worktreePath, name) {
+  const withFormat = gitResult(worktreePath, ["rev-parse", "--path-format=absolute", "--git-path", name]);
+  if (withFormat.status === 0) {
+    const v = withFormat.stdout.trim();
+    if (v) return v;
+  }
+  const bare = gitOrThrow(worktreePath, ["rev-parse", "--git-path", name]);
+  return isAbsolute(bare) ? bare : resolve(worktreePath, bare);
 }
 
 function randomSuffix() {
@@ -558,13 +602,13 @@ export function inspectTaskChanges(options) {
     return { ok: false, reason: "head-moved", headNow, baseCommit };
   }
 
-  const staged = gitOrThrow(worktreePath, ["diff", "--cached", "--name-only"]).split("\n").filter(Boolean);
+  const staged = parseZPaths(gitOrThrowRawLines(worktreePath, ["diff", "--cached", "--name-only", "-z"]));
   if (staged.length > 0) {
     return { ok: false, reason: "index-staged", stagedFiles: staged };
   }
 
-  const trackedChanges = parseNameStatus(gitOrThrow(worktreePath, ["diff", "--name-status", "HEAD"]));
-  const untracked = gitOrThrow(worktreePath, ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean);
+  const trackedChanges = parseNameStatusZ(gitOrThrowRawLines(worktreePath, ["diff", "--name-status", "-z", "HEAD"]));
+  const untracked = parseZPaths(gitOrThrowRawLines(worktreePath, ["ls-files", "--others", "--exclude-standard", "-z"]));
 
   if (trackedChanges.length === 0 && untracked.length === 0) {
     return { ok: false, reason: "no-changes" };
@@ -676,7 +720,7 @@ export function assertCommitOwnership(options) {
   if (parents[1] !== baseCommit) {
     throw new GitError(`assertCommitOwnership: commit ${commit} parent ${parents[1]} does not equal the assigned base ${baseCommit}`);
   }
-  const diffFiles = gitOrThrow(worktreePath, ["diff", "--name-only", `${baseCommit}..${commit}`]).split("\n").filter(Boolean);
+  const diffFiles = parseZPaths(gitOrThrowRawLines(worktreePath, ["diff", "--name-only", "-z", `${baseCommit}..${commit}`]));
   const outOfScope = diffFiles.filter((p) => !writePaths.some((root) => pathIsWithin(p, root)));
   if (outOfScope.length > 0) {
     throw new GitError(`assertCommitOwnership: commit ${commit} touches out-of-scope paths: ${outOfScope.join(", ")}`);
@@ -710,19 +754,60 @@ export function createCandidateIntegration(options) {
 }
 
 // Cherry-picks exactly one verified task commit into the candidate worktree.
-// On conflict, the attempt is aborted immediately (leaving the candidate at
-// its pre-attempt HEAD) and `{ ok: false }` is returned — the caller
-// decides whether to stop the wave there; this function never touches the
-// real integration branch/worktree at all.
+// On a genuine conflict the attempt is aborted immediately (leaving the
+// candidate at its pre-attempt HEAD) and `{ ok: false }` is returned — the
+// caller decides whether to stop the wave there; this function never touches
+// the real integration branch/worktree at all.
+//
+// A NON-ZERO EXIT IS NOT NECESSARILY A CONFLICT. Cherry-picking a change
+// whose content is ALREADY present exits 1 with "The previous cherry-pick is
+// now empty", leaving CHERRY_PICK_HEAD set and the worktree CLEAN. Treating
+// that as a conflict aborted the entire candidate with a misleading
+// `candidate-cherry-pick-conflict` on any recovery re-entry into a wave
+// whose commits had partly landed — the exact opposite of "successful
+// commits survive for recovery and are not rerun unnecessarily".
+//
+// The two cases are distinguished structurally, not by parsing git's prose:
+// an empty pick leaves a CLEAN worktree with a cherry-pick in progress; a
+// real conflict leaves unmerged entries (`UU`, `AA`, ...) so the worktree is
+// NOT clean. Both were verified against the live CLI.
+//
+// Both an ALREADY-INTEGRATED commit (same SHA, found by isCommitIntegrated)
+// and a CONTENT-EQUIVALENT one (different SHA — an independent commit that
+// happened to make the same change, which no SHA-based pre-check can detect)
+// land in the empty case, which is why the structural empty-detection below
+// is the load-bearing mechanism rather than a SHA pre-check.
 export function integrateCandidateCommit(options) {
   const { candidate, commit } = options ?? {};
   const result = gitResult(candidate.path, ["cherry-pick", "-x", "--no-edit", commit]);
+
   if (result.status !== 0) {
+    const worktreeClean = gitResult(candidate.path, ["status", "--porcelain=v1"]).stdout.trim().length === 0;
+    const pickInProgress = existsSync(gitMetaPath(candidate.path, "CHERRY_PICK_HEAD"));
+
+    if (worktreeClean && pickInProgress) {
+      // Empty pick: the content is already present. `--skip` (not
+      // `--allow-empty`, which git itself does not accept here — verified)
+      // resolves the in-progress state without fabricating an empty commit.
+      const skip = gitResult(candidate.path, ["cherry-pick", "--skip"]);
+      if (skip.status === 0) {
+        return {
+          ok: true,
+          commit,
+          empty: true,
+          newHead: gitOrThrow(candidate.path, ["rev-parse", "HEAD"]),
+        };
+      }
+      // --skip itself failed: fall through and treat this as a real failure
+      // rather than leaving the candidate in a half-resolved state.
+    }
+
     gitResult(candidate.path, ["cherry-pick", "--abort"]);
     return { ok: false, commit, stderr: result.stderr, stdout: result.stdout };
   }
+
   const newHead = gitOrThrow(candidate.path, ["rev-parse", "HEAD"]);
-  return { ok: true, commit, newHead };
+  return { ok: true, commit, empty: false, newHead };
 }
 
 // On failure: preserve the candidate's conflict state to a log, ensure any

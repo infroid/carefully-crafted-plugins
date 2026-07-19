@@ -428,7 +428,7 @@ describe("inspectTaskChanges", () => {
     const runId = freshRunId();
     const paths = ensurePrivateWorktreeRoot(info, runId);
     const wt = createTaskWorktree({ repoInfo: info, runId, worktreePaths: paths, wave: 1, taskId: "t1", baseCommit: info.headCommit });
-    return { repo, info, wt };
+    return { repo, info, runId, wt };
   }
 
   test("ok:true for a change wholly inside write_paths (tracked modify + untracked add)", () => {
@@ -486,6 +486,60 @@ describe("inspectTaskChanges", () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, "out-of-scope");
     assert.deepEqual(result.outOfScope, ["other/outside.txt"]);
+  });
+
+  test("NON-ASCII PATHS: an untracked file with a non-ASCII name is correctly scoped, not misread as an out-of-scope violation", () => {
+    const { info, wt } = taskSetup();
+    // Without `-z`, git returns this as the C-quoted, octal-escaped string
+    // "src/caf\303\251.txt" (quotes included), which fails the write_paths
+    // containment check and rejects a task that did nothing wrong.
+    writeFileSync(join(wt.path, "src", "café.txt"), "unicode filename\n");
+    const result = inspectTaskChanges({ worktreePath: wt.path, baseCommit: info.headCommit, writePaths: ["src/"] });
+    assert.equal(result.ok, true, `expected ok, got reason=${result.reason} outOfScope=${JSON.stringify(result.outOfScope)}`);
+    assert.deepEqual(result.changedPaths, ["src/café.txt"]);
+  });
+
+  test("NON-ASCII PATHS: a MODIFIED tracked file with a non-ASCII name is parsed correctly from --name-status", () => {
+    const { repo, info, wt } = taskSetup();
+    // Commit the non-ASCII file into the base first so the next change is a
+    // tracked modification (the --name-status path, not the ls-files path).
+    writeFileSync(join(wt.path, "src", "café.txt"), "original\n");
+    git(wt.path, ["add", "-A"]);
+    git(wt.path, ["commit", "-qm", "seed unicode file"]);
+    const newBase = readHead(wt.path);
+
+    writeFileSync(join(wt.path, "src", "café.txt"), "modified\n");
+    const result = inspectTaskChanges({ worktreePath: wt.path, baseCommit: newBase, writePaths: ["src/"] });
+    assert.equal(result.ok, true, `expected ok, got reason=${result.reason} outOfScope=${JSON.stringify(result.outOfScope)}`);
+    assert.deepEqual(result.changedPaths, ["src/café.txt"]);
+    assert.equal(result.trackedChanges[0].status, "M");
+    assert.equal(result.trackedChanges[0].path, "src/café.txt");
+  });
+
+  test("NON-ASCII PATHS: a genuinely out-of-scope non-ASCII file is still rejected (the fix must not weaken the gate)", () => {
+    const { info, wt } = taskSetup();
+    writeFileSync(join(wt.path, "src", "ok.txt"), "in scope\n");
+    writeFileSync(join(wt.path, "señor.txt"), "OUT of scope\n"); // repo root, not src/
+    const result = inspectTaskChanges({ worktreePath: wt.path, baseCommit: info.headCommit, writePaths: ["src/"] });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "out-of-scope");
+    assert.deepEqual(result.outOfScope, ["señor.txt"]);
+  });
+
+  test("NON-ASCII PATHS: a full commit + ownership assertion round-trips a non-ASCII filename", () => {
+    const { info, runId, wt } = taskSetup();
+    writeFileSync(join(wt.path, "src", "café.txt"), "content\n");
+    const changes = inspectTaskChanges({ worktreePath: wt.path, baseCommit: info.headCommit, writePaths: ["src/"] });
+    assert.equal(changes.ok, true);
+    const commitInfo = createTaskCommit({
+      repoInfo: info, worktreePath: wt.path, baseCommit: info.headCommit, writePaths: ["src/"],
+      runId, taskId: "t1", expectedFingerprint: changes.fingerprint,
+    });
+    const ownership = assertCommitOwnership({
+      worktreePath: wt.path, baseCommit: info.headCommit, commit: commitInfo.commit,
+      writePaths: ["src/"], expectedFingerprint: changes.fingerprint,
+    });
+    assert.deepEqual(ownership.files, ["src/café.txt"]);
   });
 
   test("fingerprint changes when in-scope content changes, and stays stable when nothing changes between two calls", () => {
@@ -710,6 +764,86 @@ describe("candidate integration atomicity", () => {
     // byte-for-byte-unchanged guarantee, one level further back).
     assert.notEqual(preWaveHead, driftedHead); // sanity: drift really happened
     assert.equal(git(repo, ["rev-parse", `${preWaveHead}^{tree}`]), preWaveTreeOid);
+  });
+
+  test("ALREADY-APPLIED COMMIT: re-picking the same commit is reported as an empty success, not a conflict", () => {
+    const repo = makeRepo();
+    const info = inspectRepository(repo);
+    const runId = freshRunId();
+    const paths = ensurePrivateWorktreeRoot(info, runId);
+    const integ = createIntegrationWorktree({ repoInfo: info, runId, worktreePaths: paths });
+    const t1 = fullTaskSetup(repo, info, runId, paths, 1, "t1", info.headCommit, "a.txt", "t1 change\n");
+
+    const candidate = createCandidateIntegration({ repoInfo: info, runId, worktreePaths: paths, wave: 1, integrationHead: integ.baseCommit });
+
+    const first = integrateCandidateCommit({ candidate, commit: t1.commit });
+    assert.equal(first.ok, true);
+    assert.equal(first.empty, false);
+    const headAfterFirst = readHead(candidate.path);
+
+    // The recovery re-entry case: the SAME commit picked again. git exits 1
+    // with "previous cherry-pick is now empty" — which must NOT be
+    // classified as a conflict, or a recovery pass would abort the whole
+    // candidate for work that had already landed correctly.
+    const second = integrateCandidateCommit({ candidate, commit: t1.commit });
+    assert.equal(second.ok, true, "an already-applied commit must be a success, not a conflict");
+    assert.equal(second.empty, true);
+    assert.equal(readHead(candidate.path), headAfterFirst, "an empty pick must not add a commit");
+
+    // The candidate is left in a clean, usable state — no half-resolved
+    // cherry-pick blocking further picks, and publication still works.
+    assert.equal(isWorktreeClean(candidate.path), true);
+    const publish = publishCandidateIntegration({ repoInfo: info, integrationWorktreePath: integ.path, candidate, expectedPreHead: integ.baseCommit });
+    assert.equal(publish.published, true);
+  });
+
+  test("CONTENT-EQUIVALENT COMMIT: a different commit making an identical change is also an empty success (no SHA pre-check could catch this)", () => {
+    const repo = makeRepo();
+    const info = inspectRepository(repo);
+    const runId = freshRunId();
+    const paths = ensurePrivateWorktreeRoot(info, runId);
+    const integ = createIntegrationWorktree({ repoInfo: info, runId, worktreePaths: paths });
+
+    // A task commit that sets a.txt to a specific content.
+    const t1 = fullTaskSetup(repo, info, runId, paths, 1, "t1", info.headCommit, "a.txt", "identical content\n");
+
+    // The integration branch independently reaches the SAME content via a
+    // DIFFERENT commit — so isCommitIntegrated(t1.commit) is false, yet the
+    // cherry-pick is still empty. This is why empty-detection, not a SHA
+    // pre-check, is the load-bearing mechanism.
+    writeFileSync(join(integ.path, "a.txt"), "identical content\n");
+    git(integ.path, ["add", "a.txt"]);
+    git(integ.path, ["commit", "-qm", "independent identical change"]);
+    const driftedHead = readHead(integ.path);
+    assert.equal(isCommitIntegrated({ repoInfo: info, ref: integ.branch, commit: t1.commit }), false);
+
+    const candidate = createCandidateIntegration({ repoInfo: info, runId, worktreePaths: paths, wave: 1, integrationHead: driftedHead });
+    const pick = integrateCandidateCommit({ candidate, commit: t1.commit });
+    assert.equal(pick.ok, true, "a content-equivalent commit must not be misclassified as a conflict");
+    assert.equal(pick.empty, true);
+    assert.equal(isWorktreeClean(candidate.path), true);
+  });
+
+  test("A GENUINE CONFLICT IS STILL A CONFLICT: the empty-pick fix must not swallow real conflicts", () => {
+    const repo = makeRepo();
+    const info = inspectRepository(repo);
+    const runId = freshRunId();
+    const paths = ensurePrivateWorktreeRoot(info, runId);
+    const integ = createIntegrationWorktree({ repoInfo: info, runId, worktreePaths: paths });
+    const t1 = fullTaskSetup(repo, info, runId, paths, 1, "t1", info.headCommit, "a.txt", "task side\n");
+
+    // Integration diverges to DIFFERENT content on the same line.
+    writeFileSync(join(integ.path, "a.txt"), "conflicting integration side\n");
+    git(integ.path, ["add", "a.txt"]);
+    git(integ.path, ["commit", "-qm", "conflicting change"]);
+    const driftedHead = readHead(integ.path);
+
+    const candidate = createCandidateIntegration({ repoInfo: info, runId, worktreePaths: paths, wave: 1, integrationHead: driftedHead });
+    const pick = integrateCandidateCommit({ candidate, commit: t1.commit });
+    assert.equal(pick.ok, false, "a genuine content conflict must still be reported as a conflict");
+    // Aborted cleanly, candidate back at its pre-attempt HEAD.
+    assert.equal(readHead(candidate.path), driftedHead);
+    assert.equal(isWorktreeClean(candidate.path), true);
   });
 
   test("a conflict never force-removes a dirty candidate — abortCandidateIntegration itself only removes once cherry-pick --abort has made it clean", () => {

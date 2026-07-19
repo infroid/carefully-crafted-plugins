@@ -30,37 +30,59 @@ function byteLen(value) {
   return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
 }
 
-function writeDetailArtifact(detailDir, name, value) {
+// BEST-EFFORT BY CONSTRUCTION. Writing the detail artifact is the ONE step
+// in the overflow ladder that touches the filesystem, so it is the one step
+// that can fail for reasons entirely outside the caller's control (a missing
+// detailDir, a read-only or full disk, a permissions problem). Because this
+// runs only AFTER a wave's worker cost has already been paid, a failure here
+// must never propagate: it degrades the result (detailPath becomes null and
+// `detailUnavailable` records why) instead of destroying the checkpoint for
+// completed work.
+function tryWriteDetailArtifact(detailDir, name, value) {
   if (typeof detailDir !== "string" || detailDir.length === 0) {
-    throw new ContractError("checkpoint.mjs: detailDir is required to hold overflow detail artifacts");
+    return { path: null, error: "no detailDir supplied" };
   }
-  mkdirSync(detailDir, { recursive: true });
-  const path = join(detailDir, `${name}.json`);
-  writeFileSync(path, JSON.stringify(value, null, 2));
-  return path;
+  try {
+    mkdirSync(detailDir, { recursive: true });
+    const path = join(detailDir, `${name}.json`);
+    writeFileSync(path, JSON.stringify(value, null, 2));
+    return { path, error: null };
+  } catch (err) {
+    return { path: null, error: err.message };
+  }
 }
 
 // Shared overflow ladder: try the full shape, then a slimmed shape (ids +
 // statuses only, full detail moved to disk), then a minimal counts-only
 // shape. Every rung is deterministic and every rung after the first
-// includes a pointer to the SAME detail artifact, so a reader can always
-// find the full picture regardless of which rung the bounded summary landed
-// on.
+// includes a pointer to the detail artifact when one could be written.
+//
+// THE LADDER NEVER THROWS FOR A DATA-VOLUME REASON. Previously the detail
+// write happened before the slim rung was attempted and threw outright when
+// detailDir was missing or unwritable — which fires ONLY on overflow, so a
+// run could work for months and then destroy a paid wave's checkpoint on its
+// first large wave. That directly contradicted this module's own header
+// promise. Now a failed detail write only makes `detailPath` null; the slim
+// and minimal rungs are still produced and returned, and `detailUnavailable`
+// tells the reader why the pointer is absent rather than silently implying
+// there was nothing to point at.
 function boundedArtifact({ full, buildSlim, buildMinimal, detailDir, detailName, cap = CHECKPOINT_MAX_BYTES }) {
   if (byteLen(full) <= cap) {
     return { ...full, overflow: null };
   }
 
-  const detailPath = writeDetailArtifact(detailDir, detailName, full);
-  const slim = { ...buildSlim(detailPath), overflow: { detailPath } };
+  const detail = tryWriteDetailArtifact(detailDir, detailName, full);
+  const overflow = { detailPath: detail.path, detailUnavailable: detail.error };
+
+  const slim = { ...buildSlim(detail.path), overflow };
   if (byteLen(slim) <= cap) {
     return slim;
   }
 
-  const minimal = { ...buildMinimal(detailPath), overflow: { detailPath } };
+  const minimal = { ...buildMinimal(detail.path), overflow };
   if (byteLen(minimal) > cap) {
     throw new ContractError(
-      `checkpoint.mjs: even the minimal, counts-only summary for "${detailName}" exceeds ${cap} bytes — a required scalar field is pathologically large; full detail is preserved at ${detailPath}`,
+      `checkpoint.mjs: even the minimal, counts-only summary for "${detailName}" exceeds ${cap} bytes — a required scalar field is pathologically large${detail.path ? `; full detail is preserved at ${detail.path}` : ""}`,
     );
   }
   return minimal;
@@ -93,9 +115,15 @@ export function buildCheckpoint(input) {
     integration_head: integrationHead,
     diff_stat: diffStat ?? null,
     acceptance: acceptanceMatrix.map((a) => ({ id: a.id, status: a.status, reason: a.reason ?? null })),
+    // `.slice()`, not a bare reference: the enclosing `.map()` produces a
+    // fresh OUTER object, but `t.concerns` would still be the caller's own
+    // array, aliased into the returned checkpoint. A caller mutating its
+    // task list afterward would retroactively change an already-built
+    // checkpoint. Same by-reference escape class as the Task 8 review's
+    // finding, one level deeper than the object the map creates.
     tasks: tasks.map((t) => ({
       id: t.id, status: t.status, commit: t.commit ?? null,
-      summary: t.summary ?? "", concerns: t.concerns ?? [],
+      summary: t.summary ?? "", concerns: (t.concerns ?? []).slice(),
     })),
     verification_counts: verificationCounts ?? null,
     usage_totals: usageTotals ?? null,

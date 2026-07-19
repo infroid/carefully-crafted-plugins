@@ -3,7 +3,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, readdirSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -98,6 +98,103 @@ describe("buildCheckpoint", () => {
     });
   });
 
+  test("OVERFLOW WITHOUT detailDir: never throws — a paid wave's checkpoint survives with detailPath: null", () => {
+    // This is the failure mode the module header promises to prevent: the
+    // detail write is the only filesystem step in the ladder, it fires ONLY
+    // on overflow, and it previously threw when detailDir was absent — so a
+    // run could work for months and then destroy a completed wave's
+    // checkpoint on its first large wave.
+    const tasks = Array.from({ length: 400 }, (_, i) => ({
+      id: `t${i}`, status: "READY", commit: "c".repeat(40),
+      summary: "a fairly long summary describing everything this task did ".repeat(3),
+      concerns: ["a reasonably verbose concern about what went slightly wrong"],
+    }));
+
+    let cp;
+    assert.doesNotThrow(() => {
+      cp = buildCheckpoint({
+        wave: 1, integrationHead: "a".repeat(40), diffStat: { filesChanged: 400, insertions: 5000, deletions: 200 },
+        acceptanceMatrix: [], tasks, verificationCounts: { pass: 400, fail: 0, not_run: 0 },
+        usageTotals: null, violations: [],
+        // detailDir deliberately OMITTED
+      });
+    }, "overflow without a detailDir must not throw away completed work");
+
+    assert.ok(byteLen(cp) <= CHECKPOINT_MAX_BYTES);
+    assert.ok(cp.overflow, "overflow must still be signalled");
+    assert.equal(cp.overflow.detailPath, null);
+    assert.ok(typeof cp.overflow.detailUnavailable === "string" && cp.overflow.detailUnavailable.length > 0,
+      "the reason the detail pointer is absent must be recorded, not silently implied");
+    // The bounded summary is still complete enough to be useful.
+    assert.equal(cp.wave, 1);
+    assert.equal(cp.integration_head, "a".repeat(40));
+  });
+
+  test("OVERFLOW WITH AN UNWRITABLE detailDir: still never throws", () => {
+    // A read-only parent directory stands in for a full disk / permissions
+    // problem — an environmental failure entirely outside the caller's
+    // control, arriving after the worker cost is already spent.
+    const parent = tmpDir();
+    const readOnlyParent = join(parent, "read-only");
+    mkdirSync(readOnlyParent);
+    chmodSync(readOnlyParent, 0o500); // r-x: cannot create children
+
+    try {
+      const tasks = Array.from({ length: 400 }, (_, i) => ({
+        id: `t${i}`, status: "READY", commit: "c".repeat(40),
+        summary: "a fairly long summary describing everything this task did ".repeat(3),
+        concerns: ["a reasonably verbose concern"],
+      }));
+
+      let cp;
+      assert.doesNotThrow(() => {
+        cp = buildCheckpoint({
+          wave: 2, integrationHead: "b".repeat(40), diffStat: null,
+          acceptanceMatrix: [], tasks, verificationCounts: null, usageTotals: null, violations: [],
+          detailDir: join(readOnlyParent, "nested-detail"),
+        });
+      });
+
+      assert.ok(byteLen(cp) <= CHECKPOINT_MAX_BYTES);
+      assert.equal(cp.overflow.detailPath, null);
+      assert.ok(cp.overflow.detailUnavailable);
+    } finally {
+      chmodSync(readOnlyParent, 0o700); // restore so the temp dir can be cleaned up
+    }
+  });
+
+  test("OVERFLOW WITHOUT detailDir on the final receipt: also never throws", () => {
+    const finalVerification = Array.from({ length: 300 }, (_, i) => ({
+      id: `final-${i}`, status: "PASS", exitCode: 0, logPath: `/absolute/run/logs/verification/final-${i}.log`,
+    }));
+    let receipt;
+    assert.doesNotThrow(() => {
+      receipt = buildFinalReceipt({
+        integrationHead: "f".repeat(40), finalVerification,
+        acceptanceMatrix: [], waveSummaries: [], usageTotals: null, violations: [],
+        // detailDir deliberately OMITTED
+      });
+    });
+    assert.ok(byteLen(receipt) <= CHECKPOINT_MAX_BYTES);
+    assert.equal(receipt.overflow.detailPath, null);
+    assert.ok(receipt.overflow.detailUnavailable);
+    assert.equal(receipt.integration_head, "f".repeat(40));
+  });
+
+  test("does not alias the caller's concerns array into the built checkpoint", () => {
+    const detailDir = tmpDir();
+    const concerns = ["original concern"];
+    const cp = buildCheckpoint({
+      wave: 1, integrationHead: "a".repeat(40), diffStat: null,
+      acceptanceMatrix: [], tasks: [{ id: "t1", status: "READY", commit: null, summary: "s", concerns }],
+      verificationCounts: null, usageTotals: null, violations: [], detailDir,
+    });
+    // Mutating the caller's array afterward must not retroactively change an
+    // already-built checkpoint.
+    concerns.push("added after the checkpoint was built");
+    assert.deepEqual(cp.tasks[0].concerns, ["original concern"]);
+  });
+
   test("requires wave to be 1 or 2, and integrationHead to be present", () => {
     assert.throws(() => buildCheckpoint({ wave: 3, integrationHead: "a".repeat(40), detailDir: tmpDir() }), ContractError);
     assert.throws(() => buildCheckpoint({ wave: 1, detailDir: tmpDir() }), ContractError);
@@ -111,10 +208,17 @@ describe("buildCheckpoint", () => {
       acceptanceMatrix: [], tasks: [], verificationCounts: { pass: 0, fail: 0, not_run: 0 }, usageTotals: null, violations, detailDir,
     });
     assert.ok(byteLen(cp) <= CHECKPOINT_MAX_BYTES);
-    // Once overflowed, violations collapse to a count + detail pointer.
-    if (cp.overflow) {
-      assert.equal(typeof cp.violations.count ?? cp.counts?.violationCount, "number");
-    }
+    // Once overflowed, violations collapse to a count + detail pointer. The
+    // count lives at `.violations.count` on the slim rung and at
+    // `.counts.violationCount` on the minimal rung, so accept either —
+    // written as an explicit parenthesized fallback because `typeof` binds
+    // tighter than `??`, which previously made this assertion dead code
+    // (it compared the string "number" against the ?? fallback and would
+    // have thrown a TypeError had the ladder ever reached the minimal rung).
+    assert.ok(cp.overflow, "this fixture must overflow, or the assertion below proves nothing");
+    const violationCount = cp.violations?.count ?? cp.counts?.violationCount;
+    assert.equal(typeof violationCount, "number");
+    assert.equal(violationCount, 200);
   });
 });
 

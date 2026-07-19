@@ -31,7 +31,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, realpathSync, existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
-import { ContractError, validateVerificationCommand } from "./contracts.mjs";
+import { validateVerificationCommand } from "./contracts.mjs";
 
 export class VerifyError extends Error {
   constructor(message) {
