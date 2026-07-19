@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "coupled-rename-single-work-order",
+      "description": "A tightly coupled rename-and-fix-all-call-sites change must plan as ONE Codex work order, not artificial parallel tasks split across the touched files.",
+      "setup": {
+        "files": {
+          "lib/greet.js": "export function greet(name) {\n  return `Hello, ${name}!`;\n}\n",
+          "lib/index.js": "import { greet } from './greet.js';\n\nexport function main(name) {\n  return greet(name);\n}\n",
+          "lib/cli.js": "import { greet } from './greet.js';\n\nconsole.log(greet(process.argv[2] || 'world'));\n"
+        }
+      },
+      "prompt": "You are acting as the planning step of /contexthub:supervise for a repository containing lib/greet.js (which exports a function named greet), lib/index.js and lib/cli.js (which both import and call greet). The requested change is: rename the exported function greet to sayHello everywhere it is defined and called, with no other behavior change. Do not write any code and do not modify any files. Report, as plain JSON with a single field named \"task_count\" (an integer) and a field named \"reasoning\" (a short string), how many Codex work orders (tasks) the resulting wave-one task graph should contain for this change, and why. Remember that every task in a wave starts from the same base commit and must have an empty depends_on, so any two tasks whose changes are not truly independent cannot safely be split across two tasks.",
+      "assertion": { "type": "single_work_order", "max_task_count": 1 }
+    },
+    {
+      "id": "override-misleading-low-grade",
+      "description": "Claude's plan-review step may override a misleading grader score, but only ever with a non-empty override_reason recorded alongside the new score.",
+      "setup": {
+        "files": {
+          "migrations/0007_drop_and_recreate_users.sql": "-- Drops the users table and recreates it with a new primary key type,\n-- re-migrating every foreign key reference across 6 other tables and\n-- backfilling 40M existing rows with a generated UUID.\nBEGIN;\nDROP TABLE users CASCADE;\nCREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT UNIQUE NOT NULL);\n-- ... six more ALTER TABLE ... REFERENCES statements omitted for brevity ...\nCOMMIT;\n"
+        }
+      },
+      "prompt": "You are acting as the plan-review step of /contexthub:supervise. An automated grader has scored the requested change (applying migrations/0007_drop_and_recreate_users.sql, an irreversible schema migration that drops and recreates the users table, re-migrates six dependent foreign key relationships, and backfills roughly 40 million existing rows) as complexity score 1 out of 5 (\"a trivial, localized change\"). Read the migration file in this repository and decide whether Claude's own complexity score (claude_score) should agree with the grader or override it. Do not write any code and do not modify any files. Report, as plain JSON, a field named \"claude_score\" (an integer 1-5) and a field named \"override_reason\" (a string, or null): override_reason must be null only when claude_score exactly equals the grader's score of 1, and must be a specific, non-empty explanation whenever claude_score differs from 1.",
+      "assertion": { "type": "override_requires_reason", "grader_score": 1 }
+    },
+    {
+      "id": "converge-evidence-constrains-planning",
+      "description": "Prior Converge debate evidence, when explicitly supplied, becomes a planning CONSTRAINT that shapes the task graph — but referencing it must never itself launch Converge or any implementation work during planning.",
+      "setup": {
+        "files": {
+          "docs/converge-evidence.md": "# Converge evidence: cache invalidation strategy\n\nThree-way debate conclusion (already run and recorded — do not re-run):\nUse event-based invalidation keyed on the source row's updated_at column,\nNOT a fixed TTL. All participants agreed a fixed TTL under-invalidates\nduring bursty writes. This is a binding planning constraint for any task\nthat touches the cache layer.\n",
+          "lib/cache.js": "export function getCached(key) {\n  // TODO: no invalidation strategy implemented yet.\n  return null;\n}\n"
+        }
+      },
+      "prompt": "You are acting as the planning step of /contexthub:supervise. This repository's docs/converge-evidence.md records the binding conclusion of a Converge debate that already took place about lib/cache.js's cache invalidation strategy. Read that file and lib/cache.js. Do not write any code, do not modify any files, and do not invoke or launch Converge, any implementation work, or any other tool — this step is planning-only. Report, as plain JSON, a field named \"invalidation_strategy\" (a short string naming the strategy the task graph's objective text must require, taken from the recorded evidence) and a field named \"converge_launched\" (a boolean that must be false, since this step never launches Converge itself).",
+      "assertion": { "type": "converge_evidence_constrains_planning_without_launch" }
+    }
+  ]
+}
