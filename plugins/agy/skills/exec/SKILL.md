@@ -1,6 +1,6 @@
 ---
 name: exec
-description: (context-hub:exec) Power-user escape hatch — pass any raw prompt directly to Google's Antigravity CLI (agy) for general delegation to a second, independent coding agent. Slash-command only: invoke as /agy:exec <prompt>. For image generation prefer /agy:nanobanana.
+description: Power-user escape hatch — pass any raw prompt directly to Google's Antigravity CLI (agy) for general delegation to a second, independent coding agent. Slash-command only: invoke as /agy:exec <prompt>. For image generation prefer /agy:nanobanana.
 argument-hint: <task for agy>
 disable-model-invocation: true
 ---

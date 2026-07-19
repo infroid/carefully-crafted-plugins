@@ -1,6 +1,6 @@
 ---
 name: reason
-description: (context-hub:reason) Delegate hard reasoning to OpenAI Codex at maximum effort (GPT-5.6 Sol, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging, or architecture trade-offs — even if they don't name Codex. Default deep-reasoning path in this marketplace.
+description: Delegate hard reasoning to OpenAI Codex at maximum effort (GPT-5.6 Sol, xhigh). Use whenever the user faces hard algorithms, math, optimization, deep debugging, or architecture trade-offs — even if they don't name Codex. Default deep-reasoning path in this marketplace.
 argument-hint: <problem statement>
 ---
 

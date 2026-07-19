@@ -1,6 +1,6 @@
 ---
 name: review
-description: (context-hub:review) On explicit request, run OpenAI Codex as an independent, read-only code auditor and hand back falsifiable evidence for a human or the active Superpowers review workflow to weigh. Slash-command only: invoke as /codex:review [target].
+description: On explicit request, run OpenAI Codex as an independent, read-only code auditor and hand back falsifiable evidence for a human or the active Superpowers review workflow to weigh. Slash-command only: invoke as /codex:review [target].
 argument-hint: [target paths, diff range, or question]
 disable-model-invocation: true
 ---

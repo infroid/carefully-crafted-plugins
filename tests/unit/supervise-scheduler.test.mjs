@@ -989,6 +989,80 @@ describe("executeWave", () => {
     assert.equal(totals.reasoning_output_tokens, 10);
   });
 
+  // -------------------------------------------------------------------------
+  // WORKER-FAILURE SHORT-CIRCUIT. Final whole-branch review finding: a
+  // non-null workerOutcome.failureCategory (timeout, transport,
+  // missing-completion, ...) used to fall through to ownership derivation
+  // and then full host verification (build/test commands) against a
+  // worker's partial, untrustworthy tree, paying that cost before failing
+  // anyway on an unrelated downstream reason — and the category itself
+  // never reached the receipt. `failureCategory`/`retryable` were computed
+  // in buildCodexWorker but had no consumer anywhere in the system.
+  // -------------------------------------------------------------------------
+
+  test("a worker failure (non-null failureCategory) short-circuits to BLOCKED before host verification ever runs", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const marker = join(worktreePaths.root, "verification-ran.marker");
+    const verifyThatMarks = {
+      id: "marker",
+      argv: ["node", "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`],
+      cwd: ".", requires_approval_ids: [],
+    };
+    const task = makeTask({ id: "t1", write_paths: ["a.txt"], verify: [verifyThatMarks] });
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [task], baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      // A worker that made SOME partial progress (so it would otherwise
+      // clear the ownership check) before timing out — the realistic shape
+      // of a worker that failed partway through, not one that never ran.
+      runWorker: async (t, ctx) => {
+        writeFileSync(join(ctx.worktreePath, "a.txt"), "partial progress from a worker that then timed out\n");
+        return { processExitCode: null, threadId: null, usage: null, failureCategory: "timeout", report: null };
+      },
+    });
+
+    const r = result.taskResults[0];
+    assert.equal(r.status, "BLOCKED");
+    assert.equal(r.reason, "worker-failed:timeout");
+    assert.equal(
+      existsSync(marker), false,
+      "host verification must NOT run against a failed worker's partial tree — this is the wasted cost the fix closes"
+    );
+    assert.equal(result.published, false);
+  });
+
+  test("the failure category survives onto the receipt as failure_category, even though it is never auto-retried", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const task = makeTask({ id: "t1", write_paths: ["a.txt"] });
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [task], baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: async () => ({ processExitCode: 1, threadId: null, usage: null, failureCategory: "transport", report: null }),
+    });
+
+    const r = result.taskResults[0];
+    assert.equal(r.status, "BLOCKED");
+    assert.equal(r.reason, "worker-failed:transport");
+    assert.equal(r.receipt.failure_category, "transport");
+    // Not having auto-retry is correct (plan line 204) — this only asserts
+    // the category is visible, not that anything acts on it automatically.
+    assert.equal(result.published, false);
+  });
+
+  test("a clean worker (no failureCategory) is unaffected: failure_category is null and verification still runs", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks: [makeTask({ id: "t1", write_paths: ["a.txt"] })],
+      baseCommit: info.headCommit, worktreePaths, integrationWorktreePath: integ.path, logsDir,
+      runWorker: goodWorker({ "a.txt": "change\n" }),
+    });
+    const r = result.taskResults[0];
+    assert.equal(r.receipt.failure_category, null);
+    assert.equal(r.receipt.host_verification.length, 1, "verification must still run normally when there is no worker failure");
+  });
+
   test("INTEGRATION-PHASE THROW: taskResults survive a candidate-creation failure rather than being discarded", async () => {
     const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
     const task = makeTask({ id: "t1", write_paths: ["a.txt"] });

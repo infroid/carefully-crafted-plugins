@@ -1,6 +1,6 @@
 ---
 name: exec
-description: (context-hub:exec) Power-user escape hatch — pass any raw prompt directly to OpenAI Codex CLI without the 5-section handoff. Slash-command only: invoke as /codex:exec <prompt>. For structured delegation prefer /codex:imagegen, /codex:reason, or /codex:review.
+description: Power-user escape hatch — pass any raw prompt directly to OpenAI Codex CLI without the 5-section handoff. Slash-command only: invoke as /codex:exec <prompt>. For structured delegation prefer /codex:imagegen, /codex:reason, or /codex:review.
 argument-hint: <raw prompt for codex>
 disable-model-invocation: true
 ---

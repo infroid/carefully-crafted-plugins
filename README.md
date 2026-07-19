@@ -176,7 +176,8 @@ plugins/
 tests/unit/                      # node --test, no external deps
 tools/
 ├── lint-skill.mjs               # quality-bar enforcer (run in CI via tests/)
-└── eval-check.mjs               # evals.json structural validator
+├── eval-check.mjs               # evals.json structural validator
+└── run-supervise-live-evals.mjs # paid, human-run release-eval harness (not part of ordinary supervision)
 quality-bar.md                   # the gates every skill must clear
 ```
 

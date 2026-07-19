@@ -1,6 +1,6 @@
 ---
 name: converge
-description: (context-hub:converge) Stage a short cross-provider debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — independent answers by default, or full critique-and-refinement with --full. Slash-command only: invoke as /contexthub:converge <question>. Read-only decision evidence; reach for it only on genuinely hard architecture, design, or correctness questions.
+description: Stage a short cross-provider debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — independent answers by default, or full critique-and-refinement with --full. Slash-command only: invoke as /contexthub:converge <question>. Read-only decision evidence; reach for it only on genuinely hard architecture, design, or correctness questions.
 argument-hint: [--full] <prompt to debate>
 disable-model-invocation: true
 ---

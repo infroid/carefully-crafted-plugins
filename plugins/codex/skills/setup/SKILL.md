@@ -1,6 +1,6 @@
 ---
 name: setup
-description: (context-hub:setup) Optional — copy the Codex bridge's editable default constraint/output-format files into this repo, verify the Codex CLI install, and update .gitignore. Runs only on explicit invocation; no Codex skill scaffolds or mutates the repo automatically. Slash-command only: invoke as /codex:setup.
+description: Optional — copy the Codex bridge's editable default constraint/output-format files into this repo, verify the Codex CLI install, and update .gitignore. Runs only on explicit invocation; no Codex skill scaffolds or mutates the repo automatically. Slash-command only: invoke as /codex:setup.
 disable-model-invocation: true
 ---
 

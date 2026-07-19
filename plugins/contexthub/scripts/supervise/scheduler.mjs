@@ -333,6 +333,12 @@ export function buildTaskReceipt(input) {
     actual_changed_files: (changedFiles ?? []).slice(),
     ownership_valid: ownershipValid === true,
     process_exit_code: workerOutcome?.processExitCode ?? null,
+    // Surfaces codex.mjs's classification (timeout, transport,
+    // missing-completion, ...) so it reaches the user instead of dead-ending
+    // as an opaque "model-status-missing"/ownership-check reason. There is
+    // no retry vocabulary here on purpose (plan line 204 forbids auto-retry)
+    // — this is evidence for a human, not a retry trigger.
+    failure_category: workerOutcome?.failureCategory ?? null,
     host_verification: (hostVerification ?? []).map((v) => ({
       id: v.id,
       status: v.status,
@@ -396,6 +402,25 @@ async function runOneTaskAndCommit(task, ctx) {
     // host-derived from git and the (cross-checked) report; nothing here
     // ever trusts workerOutcome.report's claims about WHAT changed.
     workerOutcome = await runWorker(task, { worktreePath: wt.path, baseCommit, branch: wt.branch });
+
+    // WORKER-FAILURE SHORT-CIRCUIT. A non-null failureCategory (timeout,
+    // transport, missing-completion, ...) means codex.mjs itself could not
+    // get a trustworthy completion out of the worker — there is no report
+    // to trust and no reason to believe the worktree reflects a finished
+    // attempt. Previously this fell through to ownership derivation and then
+    // host verification (build/test commands) against that same
+    // untrustworthy partial tree before failing anyway on an unrelated
+    // downstream reason (typically "model-status-missing") — paying
+    // verification's full cost for a result already known to be void, and
+    // burying the actual failure category (see buildTaskReceipt above; it is
+    // not auto-retried either way — plan line 204 forbids that — so nothing
+    // is lost by failing closed here instead of one step further down).
+    if (workerOutcome.failureCategory) {
+      return taskResult(task.id, "BLOCKED", {
+        reason: `worker-failed:${workerOutcome.failureCategory}`,
+        worktreePath: wt.path, branch: wt.branch, workerOutcome, receipt: receiptFor(),
+      });
+    }
 
     // Host-authoritative ownership derivation (git.mjs). A worker that
     // stages, moves HEAD, or touches anything outside write_paths is
