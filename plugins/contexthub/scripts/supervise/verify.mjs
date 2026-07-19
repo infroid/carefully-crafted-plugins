@@ -7,18 +7,50 @@
 // must stay reachable for legitimate verification commands, and there is no
 // general way to tell those apart from argv shape alone. So this file does
 // not try to lengthen that denylist — it adds four DIFFERENT, STRUCTURAL
-// controls that reduce blast radius even when an argv slips through the
-// shape check:
+// controls:
 //
-//   1. A repo-contained cwd (validateExecutionCwd, realpath-verified —
-//      confines relative-path filesystem operations to the worktree).
-//   2. `shell: false` on every spawn (no shell re-interpretation, ever).
+//   1. A repo-contained cwd (validateExecutionCwd, realpath-verified — the
+//      `cwd` ARGUMENT itself is confined to the worktree; see caveat below).
+//   2. `shell: false` on every spawn (the argv WE hand to spawn() is never
+//      re-interpreted by a shell of ours; see caveat below).
 //   3. A bounded, capped timeout on every command.
 //   4. `requires_approval_ids` enforced immediately before the spawn call —
 //      not merely checked for existence against a known list (that is
 //      contracts.mjs's job at graph-acceptance time) but checked for
 //      DECISION STATE (`APPROVED`, not merely "present") at execution time,
 //      using whatever the live approvals state is right now.
+//
+// WHAT THESE CONTROLS ARE NOT — READ BEFORE TRUSTING THIS FILE FOR ISOLATION:
+//
+// Controls #1-#4 reduce accidental foot-guns and block the most direct
+// shell-injection argv shapes. They are NOT a containment boundary, and
+// none of them stop an accepted verification command from executing
+// arbitrary code that a Codex worker wrote into the worktree — running
+// generated code is inherent to verification. `make test`, `npm run test`,
+// `pytest`, `cargo test`, and `docker run` all pass
+// `validateVerificationCommand`'s denylist (rejecting them would break
+// ordinary verification), and each is free to run a worker-authored
+// Makefile, package.json script, test file, or Dockerfile with the HOST's
+// full environment, unsandboxed. Control #2's `shell: false` does not stop
+// this: it only means WE do not re-interpret argv through a shell before
+// exec — the shell `make` invokes internally for each recipe line, or that
+// `npm run` invokes via `sh -c`, is not our shell, and is entirely outside
+// this control's reach. Control #1's cwd confinement only fixes the
+// STARTING directory of the spawned process; it confines nothing the
+// process does once it is running.
+//
+// Verified end-to-end (final whole-branch review): a graph-declared
+// `["make", "test"]` command passes `validateVerificationCommand`, and a
+// worker-authored Makefile it then runs wrote a file OUTSIDE the worktree
+// as the host user — no sandbox, no denial, `status: PASS`.
+//
+// The resulting asymmetry: the Codex WORKER that authored the code ran
+// confined under `workspace-write` sandboxing; this file's verification of
+// what it wrote does not run confined at all. A caller relying on
+// controls #1-#4 for isolation from worker-authored code is relying on
+// something this file does not provide. Under-claim this, always — do not
+// extend the argv denylist to try to close this gap; it cannot be closed
+// that way (see contracts.mjs's `assertSafeVerificationArgv` comment).
 //
 // A non-zero/timeout host result always overrides a model's self-reported
 // `DONE` — this file has no concept of the model's report at all; a caller

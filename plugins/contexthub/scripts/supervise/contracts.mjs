@@ -466,8 +466,23 @@ export function validateApprovalFlag(value) {
 
 const VERIFICATION_COMMAND_FIELDS = ["id", "argv", "cwd", "requires_approval_ids"];
 
-// A verification command is a direct process invocation, never a string a
-// shell re-interprets.
+// A verification command's own argv is a direct process invocation, never a
+// string a shell of OURS re-interprets (Task 9 spawns it with `shell:
+// false`).
+//
+// SCOPE, NOT A CONTAINMENT GUARANTEE: this denylist only rejects a
+// verification command that DIRECTLY names a known shell interpreter or
+// exec-wrapper in its own argv. It cannot and does not stop an ACCEPTED
+// command from invoking a shell internally once it starts — `make`,
+// `npm run <script>`, `pytest`, `cargo test`, and `docker run` all pass
+// this check (rejecting them would break ordinary verification), and each
+// is free to spawn `/bin/sh` itself to run worker-authored code from the
+// worktree (a Makefile, a package.json script, a test file, a Dockerfile).
+// Running generated code is inherent to verification; this check blocks the
+// crude "hand the interpreter the payload directly" shape, not indirect
+// shell use inside an accepted tool, and must not be extended to try —
+// see verify.mjs's header for the full statement of what these controls do
+// and do not provide.
 //
 // Critically, checking only argv[0] is NOT sufficient: `["env","bash","-c",
 // "rm -rf /"]` and `["timeout","60","sh","-c","..."]` both put a harmless
@@ -510,7 +525,7 @@ function assertSafeVerificationArgv(argv, context) {
   // Every token, not just argv[0] — see the SHELL_INTERPRETERS comment.
   const interpreterIdx = basenames.findIndex((b) => SHELL_INTERPRETERS.has(b));
   if (interpreterIdx >= 0) {
-    throw new ContractError(`${context}: shell interpreters are not permitted anywhere in a verification command (argv[${interpreterIdx}] = "${argv[interpreterIdx]}")`);
+    throw new ContractError(`${context}: a named shell interpreter must not appear directly in a verification command's argv (argv[${interpreterIdx}] = "${argv[interpreterIdx]}") — this blocks direct invocation only, not shell use inside an accepted command`);
   }
   if (COMMAND_WRAPPERS.has(program)) {
     throw new ContractError(`${context}: "${program}" is a command wrapper that can launch an arbitrary program and is not permitted as a verification command`);
