@@ -139,7 +139,13 @@ export function buildCheckpoint(input) {
       integration_head: integrationHead,
       diff_stat: diffStat ?? null,
       acceptance: acceptanceMatrix.map((a) => ({ id: a.id, status: a.status })),
-      tasks: tasks.map((t) => ({ id: t.id, status: t.status, commit: t.commit ?? null })),
+      // `concernCount` rides along even in the degraded shape (a handful of
+      // bytes against a multi-KiB cap): DONE_WITH_CONCERNS is a mandatory
+      // Claude-facing signal (brief), and dropping it here would make a
+      // concern invisible to Claude on every wave big enough to overflow
+      // `full` — silently, since a degraded task record is otherwise
+      // shaped identically to a clean one.
+      tasks: tasks.map((t) => ({ id: t.id, status: t.status, commit: t.commit ?? null, concernCount: (t.concerns ?? []).length })),
       verification_counts: verificationCounts ?? null,
       usage_totals: usageTotals ?? null,
       violations: { count: violations.length, detailPath },
@@ -154,6 +160,12 @@ export function buildCheckpoint(input) {
         taskCount: tasks.length,
         acceptanceCount: acceptanceMatrix.length,
         violationCount: violations.length,
+        // Same rationale as the slim tier's per-task `concernCount`: even
+        // the counts-only shape must not make a concern invisible. This is
+        // a TOTAL across all tasks (minimal has no per-task rows left to
+        // attach it to) — a nonzero value is Claude's cue to open
+        // `detailPath` for which task(s) reported it.
+        concernCount: tasks.reduce((sum, t) => sum + (t.concerns ?? []).length, 0),
         detailPath,
       },
     }),

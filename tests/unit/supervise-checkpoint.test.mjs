@@ -220,6 +220,80 @@ describe("buildCheckpoint", () => {
     assert.equal(typeof violationCount, "number");
     assert.equal(violationCount, 200);
   });
+
+  // -------------------------------------------------------------------------
+  // DONE_WITH_CONCERNS must survive degradation. Final whole-branch review
+  // finding: a model's DONE_WITH_CONCERNS status collapses to a host outcome
+  // (READY/BLOCKED) in `status`, so `concerns` was the ONLY place the signal
+  // survived — and both degraded rungs (slim, minimal) dropped it wholesale,
+  // making a concerning task byte-identical in shape to a clean one once a
+  // wave was big enough to overflow `full`. These three tests force each
+  // rung in turn and assert a `concernCount` signal survives every one.
+  // -------------------------------------------------------------------------
+
+  function taskWith(id, concerns, bulkyOthers) {
+    return { id, status: "READY", commit: "a".repeat(40), summary: "a moderately detailed summary of what this task changed and why ".repeat(bulkyOthers ? 9 : 1), concerns };
+  }
+
+  test("a concern survives on the FULL rung (sanity baseline — no degradation involved)", () => {
+    const detailDir = tmpDir();
+    const cp = buildCheckpoint({
+      wave: 1, integrationHead: "a".repeat(40), diffStat: null,
+      acceptanceMatrix: [], tasks: [taskWith("task-1", [], false), taskWith("task-2", ["a real concern"], false)],
+      verificationCounts: null, usageTotals: null, violations: [], detailDir,
+    });
+    assert.equal(cp.overflow, null, "fixture must NOT overflow, or this is not testing the full rung");
+    assert.deepEqual(cp.tasks.find((t) => t.id === "task-2").concerns, ["a real concern"]);
+  });
+
+  test("a concern survives on the SLIM rung as a per-task concernCount", () => {
+    const detailDir = tmpDir();
+    // 12-task wave, task-3 carries a concern — mirrors the release-review
+    // repro. Summaries are bulked up just enough to overflow `full` (8192
+    // bytes) while staying well inside `slim`.
+    const tasks = Array.from({ length: 12 }, (_, i) => taskWith(`task-${i + 1}`, i === 2 ? ["the migration touches a shared table without a lock; verify before shipping"] : [], true));
+    const cp = buildCheckpoint({
+      wave: 1, integrationHead: "b".repeat(40),
+      diffStat: { filesChanged: 40, insertions: 900, deletions: 120 },
+      acceptanceMatrix: Array.from({ length: 6 }, (_, i) => ({ id: `AC-0${i}`, status: "SATISFIED", reason: "x".repeat(80) })),
+      tasks, verificationCounts: { pass: 12, fail: 0, not_run: 0 },
+      usageTotals: { input_tokens: 50000, cached_input_tokens: 1000, output_tokens: 9000, reasoning_output_tokens: 2000 },
+      violations: [], detailDir,
+    });
+    assert.ok(cp.overflow, "fixture must overflow past `full`, or this is not testing a degraded rung");
+    assert.ok(Array.isArray(cp.tasks), "must still be the slim rung (an array of task rows), not minimal");
+    assert.ok(byteLen(cp) <= CHECKPOINT_MAX_BYTES);
+
+    const task3 = cp.tasks.find((t) => t.id === "task-3");
+    assert.ok(task3, "task-3 must still be present in the slim rung");
+    assert.equal(task3.concernCount, 1, "task-3's concern must survive as a nonzero concernCount on the slim rung");
+
+    const task1 = cp.tasks.find((t) => t.id === "task-1");
+    assert.equal(task1.concernCount, 0, "a concern-free task must report concernCount: 0, not omit the field");
+
+    // The slim rung must NOT resurrect the full concern text — only the
+    // count. Full text is on-disk at overflow.detailPath.
+    assert.ok(!("concerns" in task3), "slim rung must carry concernCount, not the full concerns array");
+  });
+
+  test("a concern survives on the MINIMAL rung as a total concernCount", () => {
+    const detailDir = tmpDir();
+    // A large enough task list that even the slim rung (one row per task)
+    // overflows, forcing the counts-only minimal rung.
+    const tasks = Array.from({ length: 400 }, (_, i) => taskWith(`task-${i + 1}`, i === 2 || i === 90 ? [`a real concern about task ${i}`] : [], false));
+    const cp = buildCheckpoint({
+      wave: 1, integrationHead: "b".repeat(40),
+      diffStat: { filesChanged: 400, insertions: 900, deletions: 120 },
+      acceptanceMatrix: Array.from({ length: 40 }, (_, i) => ({ id: `AC-${i}`, status: "SATISFIED", reason: "x".repeat(80) })),
+      tasks, verificationCounts: { pass: 400, fail: 0, not_run: 0 },
+      usageTotals: { input_tokens: 50000, cached_input_tokens: 1000, output_tokens: 9000, reasoning_output_tokens: 2000 },
+      violations: [], detailDir,
+    });
+    assert.ok(cp.overflow, "fixture must overflow");
+    assert.ok(!Array.isArray(cp.tasks), "must be the minimal rung (no per-task rows left)");
+    assert.ok(byteLen(cp) <= CHECKPOINT_MAX_BYTES);
+    assert.equal(cp.counts.concernCount, 2, "the two concerns among 400 tasks must survive as a total on the minimal rung");
+  });
 });
 
 // --------------------------------------------------------------------------

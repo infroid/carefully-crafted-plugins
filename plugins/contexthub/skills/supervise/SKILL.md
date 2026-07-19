@@ -63,6 +63,7 @@ immediately instead.
 
 Resolve every approval flag with the user via `decide-approval` first. Then
 run wave one and read only `checkpoint-1.json` — not worker transcripts.
+Open `detailPath` if any checkpoint's `concernCount` is nonzero.
 
 ## 6. Review wave one
 
@@ -76,11 +77,10 @@ If corrections ran, run wave two. Afterward classify every criterion
 `SATISFIED|BLOCKED` and call `accept-final-review`. Never request or attempt
 a third wave — the transport structurally refuses it.
 
-Order Codex workers by installed skill name only (no `superpowers:` prefix,
-no `@` includes): `test-driven-development`, `systematic-debugging` when
-applicable, `receiving-code-review` for corrections, and
-`verification-before-completion`. Every order prohibits subagent-driven and
-parallel-agent skills — a worker is always alone in its worktree.
+Order Codex workers by skill name only (no `superpowers:` prefix, no `@`
+includes): `test-driven-development`, `systematic-debugging` when needed,
+`receiving-code-review` for corrections, `verification-before-completion` —
+never subagent-driven or parallel-agent skills; a worker is always alone.
 
 ## 8. Verify
 

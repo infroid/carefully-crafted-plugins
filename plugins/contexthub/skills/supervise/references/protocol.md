@@ -209,3 +209,13 @@ from git, `process_exit_code` from the child process,
 `host_verification` from `verify.mjs`. The model's own claim sits
 quarantined under `report` — nothing from it is ever merged upward into a
 host-derived field.
+
+A worker report's `status` (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`,
+`BLOCKED`) is one such quarantined claim: it never becomes the checkpoint's
+host-authoritative `status` (`READY`/`BLOCKED`, derived independently). A
+`DONE_WITH_CONCERNS` report's `concerns` therefore survives only through
+its own field — the full checkpoint carries the array verbatim; if the
+checkpoint overflows and degrades to the slim or minimal rung, each task's
+`concernCount` (a total on minimal) rides along instead, so a concern is
+never silently indistinguishable from a clean task. Open the checkpoint's
+`detailPath` whenever any `concernCount` is nonzero.
