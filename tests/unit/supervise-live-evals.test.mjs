@@ -21,7 +21,7 @@ import {
   LiveEvalError, ALLOWED_TOOLS, ASSERTION_TYPES,
   validateCasesFixture, assertPositiveBudget, assertDisposableRoot, assertCredentialSource,
   resolveContexthubPluginDir, formatUsd, buildClaudeArgv, parseClaudeCostResult,
-  createDisposableCaseRepo, writeCaseOutput, runLiveEvals, main,
+  createDisposableCaseRepo, writeCaseOutput, runLiveEvals, main, evaluateCaseAssertion,
 } from "../../tools/run-supervise-live-evals.mjs";
 
 function scratchDir() {
@@ -39,7 +39,9 @@ function makeCase(overrides = {}) {
     id: "sample-case",
     description: "a sample case",
     prompt: "do the planning-only thing and report JSON",
-    assertion: { type: "single_work_order" },
+    // Every assertion type now carries REQUIRED parameters (enforced by
+    // validateCasesFixture), so the default here must be a fully-formed one.
+    assertion: { type: "single_work_order", max_task_count: 1 },
     ...overrides,
   };
 }
@@ -84,6 +86,30 @@ describe("validateCasesFixture", () => {
 
   test("rejects an empty cases array", () => {
     assert.throws(() => validateCasesFixture({ version: 1, cases: [] }), LiveEvalError);
+  });
+
+  // The assertion PARAMETERS are load-bearing inputs to grading, not
+  // decoration — a case that declares an assertion the evaluator could not
+  // then evaluate must be rejected up front rather than silently becoming an
+  // INCONCLUSIVE verdict after the paid call has already been made.
+  test("rejects an assertion whose required parameters are missing or malformed", () => {
+    const badAssertions = [
+      { type: "single_work_order" },
+      { type: "single_work_order", max_task_count: 0 },
+      { type: "single_work_order", max_task_count: "1" },
+      { type: "override_requires_reason" },
+      { type: "override_requires_reason", grader_score: 9 },
+      { type: "converge_evidence_constrains_planning_without_launch" },
+      { type: "converge_evidence_constrains_planning_without_launch", expected_strategy_pattern: "" },
+      { type: "converge_evidence_constrains_planning_without_launch", expected_strategy_pattern: "([unclosed" },
+    ];
+    for (const assertion of badAssertions) {
+      assert.throws(
+        () => validateCasesFixture({ version: 1, cases: [makeCase({ assertion })] }),
+        LiveEvalError,
+        `expected rejection for ${JSON.stringify(assertion)}`,
+      );
+    }
   });
 });
 
@@ -179,20 +205,58 @@ describe("buildClaudeArgv", () => {
     assert.equal(argv[idx + 1], "dontAsk");
   });
 
-  test("allowlists exactly the file/search tools plus bounded local node/git status|add|commit Bash forms — nothing broader", () => {
+  test("allowlists exactly the read-only file/search tools plus two read-only git queries — and nothing that can execute code", () => {
     const argv = buildClaudeArgv({ prompt: "hello", contexthubPluginDir, superpowersPluginDir, remainingBudgetUsd: 5 });
     const idx = argv.indexOf("--allowedTools");
     assert.ok(idx >= 0);
     const tools = argv[idx + 1].split(",");
-    assert.deepEqual(tools.sort(), [
-      "Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)", "Bash(node:*)",
-      "Glob", "Grep", "Read",
+    assert.deepEqual(tools.slice().sort(), [
+      "Bash(git log:*)", "Bash(git status:*)", "Glob", "Grep", "Read",
     ].sort());
-    // Explicitly never any of these — the negative half of "bounded."
-    for (const forbidden of ["Bash(git push:*)", "Bash(git reset:*)", "Bash(git clean:*)", "Bash(*)", "WebFetch", "WebSearch", "Write", "Edit"]) {
-      assert.ok(!tools.includes(forbidden), `must not allowlist ${forbidden}`);
-    }
     assert.deepEqual([...ALLOWED_TOOLS].sort(), tools.slice().sort());
+  });
+
+  // THE BOUND ITSELF, AS A PROPERTY — not merely "Bash(*) is absent".
+  //
+  // The previous version of this test asserted only that a handful of NAMED
+  // bad grants were missing, which gave false comfort: `Bash(node:*)` was in
+  // the allowlist and, under `--permission-mode dontAsk`, `node -e '<any
+  // code>'` is exactly as powerful as `Bash(*)` — arbitrary filesystem writes
+  // outside the disposable repo and outright network access. Enumerating
+  // forbidden spellings could never have caught that, because the dangerous
+  // grant was not one of the spellings enumerated.
+  //
+  // So this asserts the closed property instead: EVERY allowlisted entry must
+  // be either a read-only file/search tool or a read-only `git` query. There
+  // is no fallthrough for a new entry to slip through, and adding any
+  // interpreter grant fails here regardless of how it is spelled.
+  test("BOUND: every allowlisted entry is either a read-only file/search tool or a read-only git query — no entry can execute code, write files, or reach the network", () => {
+    const READ_ONLY_FILE_TOOLS = new Set(["Read", "Glob", "Grep"]);
+    const READ_ONLY_GIT_GRANT_RE = /^Bash\(git (status|log):\*\)$/;
+
+    for (const tool of ALLOWED_TOOLS) {
+      const ok = READ_ONLY_FILE_TOOLS.has(tool) || READ_ONLY_GIT_GRANT_RE.test(tool);
+      assert.ok(ok, `allowlist entry "${tool}" is neither a read-only file/search tool nor a read-only git query — it may permit code execution, file writes, or network access`);
+    }
+
+    // Regression guard naming the exact finding this bound closes: a bare
+    // interpreter grant, in ANY spelling, is unrepresentable in this list.
+    const INTERPRETER_RE = /^Bash\(\s*(node|nodejs|deno|bun|python|python3|ruby|perl|php|sh|bash|zsh|dash|osascript|env|npx|pnpm|yarn)\b/i;
+    for (const tool of ALLOWED_TOOLS) {
+      assert.ok(!INTERPRETER_RE.test(tool), `allowlist entry "${tool}" grants an interpreter, which is arbitrary code execution under --permission-mode dontAsk`);
+    }
+
+    // And no entry may carry an inline-code flag, which is the specific
+    // mechanism that made `Bash(node:*)` equivalent to `Bash(*)`.
+    for (const tool of ALLOWED_TOOLS) {
+      assert.ok(!/(^|[\s(])-(e|p)\b|--eval|--print\b/.test(tool), `allowlist entry "${tool}" carries an inline-code flag`);
+    }
+
+    // Mutating/networked tools remain absent (kept from the original test —
+    // still true, just no longer the whole argument).
+    for (const forbidden of ["Bash(node:*)", "Bash(git push:*)", "Bash(git reset:*)", "Bash(git clean:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(*)", "WebFetch", "WebSearch", "Write", "Edit", "NotebookEdit", "Task"]) {
+      assert.ok(!ALLOWED_TOOLS.includes(forbidden), `must not allowlist ${forbidden}`);
+    }
   });
 
   test("the prompt is the final positional argument", () => {
@@ -252,6 +316,148 @@ describe("parseClaudeCostResult", () => {
 
   test("fails closed on a non-finite total_cost_usd (an overflowing numeric literal parses to Infinity)", () => {
     assert.equal(parseClaudeCostResult('{"total_cost_usd": 1e400}').ok, false);
+  });
+});
+
+// ============================================================================
+// evaluateCaseAssertion — the per-case VERDICT.
+//
+// Without this, the runner collected stdout and cost but emitted no pass/fail
+// judgement at all, so a case's declared assertion parameters
+// (`max_task_count`, `grader_score`, `expected_strategy_pattern`) were inert
+// data and Step 4's "Cases assert: …" would have required hand-grading.
+//
+// THE FALLTHROUGH RULE, APPLIED HERE TOO: every path that cannot actually
+// evaluate the property returns INCONCLUSIVE. Nothing returns PASS by
+// default, and "I could not tell" is never reported as success.
+// ============================================================================
+
+describe("evaluateCaseAssertion", () => {
+  function envelopeWith(resultText) {
+    return { total_cost_usd: 0.5, result: resultText };
+  }
+
+  describe("single_work_order", () => {
+    const c = makeCase({ assertion: { type: "single_work_order", max_task_count: 1 } });
+
+    test("PASS when the reported task_count is within the declared maximum", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"task_count": 1, "reasoning": "coupled"}'));
+      assert.equal(v.verdict, "PASS");
+      assert.equal(v.observed.task_count, 1);
+    });
+
+    test("FAIL when the model splits coupled work into artificial parallelism", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"task_count": 3, "reasoning": "one per file"}'));
+      assert.equal(v.verdict, "FAIL");
+    });
+
+    test("reads JSON out of a fenced code block, which is how models usually emit it", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('Here is my answer:\n```json\n{"task_count": 1, "reasoning": "coupled"}\n```\n'));
+      assert.equal(v.verdict, "PASS");
+    });
+
+    test("INCONCLUSIVE (never PASS) when task_count is missing, non-integer, or below 1", () => {
+      for (const body of ['{"reasoning": "x"}', '{"task_count": "one"}', '{"task_count": 1.5}', '{"task_count": 0}']) {
+        assert.equal(evaluateCaseAssertion(c, envelopeWith(body)).verdict, "INCONCLUSIVE", `body ${body}`);
+      }
+    });
+  });
+
+  describe("override_requires_reason", () => {
+    const c = makeCase({ assertion: { type: "override_requires_reason", grader_score: 1 } });
+
+    test("PASS when an overriding score carries a non-empty reason", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"claude_score": 5, "override_reason": "irreversible 40M-row migration"}'));
+      assert.equal(v.verdict, "PASS");
+    });
+
+    test("FAIL when the score is overridden with a null or empty reason", () => {
+      for (const body of ['{"claude_score": 5, "override_reason": null}', '{"claude_score": 5, "override_reason": "   "}']) {
+        assert.equal(evaluateCaseAssertion(c, envelopeWith(body)).verdict, "FAIL", `body ${body}`);
+      }
+    });
+
+    test("PASS when the score agrees with the grader and the reason is correctly null", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"claude_score": 1, "override_reason": null}'));
+      assert.equal(v.verdict, "PASS");
+    });
+
+    test("FAIL when the score agrees with the grader but a reason is supplied anyway", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"claude_score": 1, "override_reason": "agreed"}'));
+      assert.equal(v.verdict, "FAIL");
+    });
+
+    test("INCONCLUSIVE when claude_score is missing or out of the 1-5 range", () => {
+      for (const body of ['{"override_reason": "x"}', '{"claude_score": 9, "override_reason": "x"}']) {
+        assert.equal(evaluateCaseAssertion(c, envelopeWith(body)).verdict, "INCONCLUSIVE", `body ${body}`);
+      }
+    });
+  });
+
+  describe("converge_evidence_constrains_planning_without_launch", () => {
+    const c = makeCase({
+      assertion: {
+        type: "converge_evidence_constrains_planning_without_launch",
+        expected_strategy_pattern: "event",
+      },
+    });
+
+    test("PASS when the recorded strategy constrains planning and Converge was not launched", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"invalidation_strategy": "event-based on updated_at", "converge_launched": false}'));
+      assert.equal(v.verdict, "PASS");
+    });
+
+    test("FAIL when planning ignored the recorded evidence", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"invalidation_strategy": "fixed 60s TTL", "converge_launched": false}'));
+      assert.equal(v.verdict, "FAIL");
+    });
+
+    test("FAIL when Converge was launched during a planning-only step", () => {
+      const v = evaluateCaseAssertion(c, envelopeWith('{"invalidation_strategy": "event-based on updated_at", "converge_launched": true}'));
+      assert.equal(v.verdict, "FAIL");
+    });
+
+    test("INCONCLUSIVE when converge_launched is missing or not a boolean", () => {
+      for (const body of ['{"invalidation_strategy": "event-based"}', '{"invalidation_strategy": "event-based", "converge_launched": "no"}']) {
+        assert.equal(evaluateCaseAssertion(c, envelopeWith(body)).verdict, "INCONCLUSIVE", `body ${body}`);
+      }
+    });
+  });
+
+  describe("fail-closed fallthroughs", () => {
+    test("INCONCLUSIVE when the result text contains no JSON object at all", () => {
+      const c = makeCase({ assertion: { type: "single_work_order", max_task_count: 1 } });
+      assert.equal(evaluateCaseAssertion(c, envelopeWith("I could not determine the task count.")).verdict, "INCONCLUSIVE");
+    });
+
+    test("INCONCLUSIVE when the envelope has no usable result field", () => {
+      const c = makeCase({ assertion: { type: "single_work_order", max_task_count: 1 } });
+      for (const env of [{}, { result: null }, { result: 42 }, null]) {
+        assert.equal(evaluateCaseAssertion(c, env).verdict, "INCONCLUSIVE", `envelope ${JSON.stringify(env)}`);
+      }
+    });
+
+    // The fallthrough test applied to the evaluator itself: an assertion type
+    // the evaluator does not implement must be INCONCLUSIVE, never PASS —
+    // even though validateCasesFixture already rejects unknown types, this
+    // function must fail closed on its own rather than delegating its safety
+    // to a check that lives somewhere else.
+    test("INCONCLUSIVE for an assertion type the evaluator does not implement", () => {
+      const c = makeCase({ assertion: { type: "some_future_unimplemented_assertion" } });
+      const v = evaluateCaseAssertion(c, envelopeWith('{"task_count": 1}'));
+      assert.equal(v.verdict, "INCONCLUSIVE");
+    });
+
+    test("every verdict this function can return is one of PASS/FAIL/INCONCLUSIVE", () => {
+      const samples = [
+        [makeCase({ assertion: { type: "single_work_order", max_task_count: 1 } }), envelopeWith('{"task_count": 1}')],
+        [makeCase({ assertion: { type: "single_work_order", max_task_count: 1 } }), envelopeWith("nope")],
+        [makeCase({ assertion: { type: "unknown_type" } }), envelopeWith("{}")],
+      ];
+      for (const [c, env] of samples) {
+        assert.ok(["PASS", "FAIL", "INCONCLUSIVE"].includes(evaluateCaseAssertion(c, env).verdict));
+      }
+    });
   });
 });
 
@@ -412,6 +618,67 @@ describe("runLiveEvals with a fake spawnImpl (budget tracking)", () => {
     assert.ok(result.failedClosed);
     assert.match(result.failedClosed.reason, /over-cap/);
     assert.equal(result.results.length, 0);
+  });
+
+  test("each attempted case carries a graded verdict, and the run summary reports counts plus an all-passed flag", async () => {
+    const cases = [
+      makeCase({ id: "pass-case", prompt: "case pass-case: report json", assertion: { type: "single_work_order", max_task_count: 1 } }),
+      makeCase({ id: "fail-case", prompt: "case fail-case: report json", assertion: { type: "single_work_order", max_task_count: 1 } }),
+      makeCase({ id: "incon-case", prompt: "case incon-case: report json", assertion: { type: "single_work_order", max_task_count: 1 } }),
+    ];
+    const spawnImpl = async (bin, argv) => {
+      const prompt = argv[argv.length - 1];
+      const body = prompt.includes("pass-case") ? '{"task_count": 1}'
+        : prompt.includes("fail-case") ? '{"task_count": 4}'
+          : "no json here at all";
+      return { stdout: JSON.stringify({ total_cost_usd: 1, result: body }) };
+    };
+    const result = await runLiveEvals({
+      cases, contexthubPluginDir: resolveContexthubPluginDir(), superpowersPluginDir: "/tmp/fake-superpowers",
+      maxBudgetUsd: 10, dryRun: false, disposableRoot: scratchDir(), spawnImpl,
+    });
+    assert.deepEqual(result.results.map((r) => r.verdict), ["PASS", "FAIL", "INCONCLUSIVE"]);
+    assert.deepEqual(result.verdictCounts, { PASS: 1, FAIL: 1, INCONCLUSIVE: 1 });
+    assert.equal(result.allAssertionsPassed, false, "a run containing a FAIL or INCONCLUSIVE must never report all-passed");
+  });
+
+  test("allAssertionsPassed is true only when every case was attempted AND graded PASS", async () => {
+    const cases = ["a", "b"].map((id) => makeCase({ id, prompt: `case ${id}: report json`, assertion: { type: "single_work_order", max_task_count: 1 } }));
+    const spawnImpl = async () => ({ stdout: JSON.stringify({ total_cost_usd: 1, result: '{"task_count": 1}' }) });
+    const result = await runLiveEvals({
+      cases, contexthubPluginDir: resolveContexthubPluginDir(), superpowersPluginDir: "/tmp/fake-superpowers",
+      maxBudgetUsd: 10, dryRun: false, disposableRoot: scratchDir(), spawnImpl,
+    });
+    assert.equal(result.allAssertionsPassed, true);
+    assert.deepEqual(result.verdictCounts, { PASS: 2, FAIL: 0, INCONCLUSIVE: 0 });
+  });
+
+  test("a run that stopped early or failed closed can never report allAssertionsPassed, even if every ATTEMPTED case passed", async () => {
+    const cases = ["a", "b"].map((id) => makeCase({ id, prompt: `case ${id}: report json`, assertion: { type: "single_work_order", max_task_count: 1 } }));
+    // Case "a" passes its assertion but consumes the entire budget, so "b" is
+    // never attempted — an unattempted case is not a passing case.
+    const spawnImpl = async () => ({ stdout: JSON.stringify({ total_cost_usd: 10, result: '{"task_count": 1}' }) });
+    const result = await runLiveEvals({
+      cases, contexthubPluginDir: resolveContexthubPluginDir(), superpowersPluginDir: "/tmp/fake-superpowers",
+      maxBudgetUsd: 10, dryRun: false, disposableRoot: scratchDir(), spawnImpl,
+    });
+    assert.equal(result.stoppedEarly, true);
+    assert.deepEqual(result.results.map((r) => r.verdict), ["PASS"]);
+    assert.equal(result.allAssertionsPassed, false, "an incomplete run must not claim every case passed");
+  });
+
+  test("the per-case audit file records the verdict alongside the raw output", async () => {
+    const cases = [makeCase({ id: "audited", prompt: "case audited: report json", assertion: { type: "single_work_order", max_task_count: 1 } })];
+    const spawnImpl = async () => ({ stdout: JSON.stringify({ total_cost_usd: 1, result: '{"task_count": 1}' }) });
+    const root = scratchDir();
+    const outputsDir = join(root, "outputs");
+    await runLiveEvals({
+      cases, contexthubPluginDir: resolveContexthubPluginDir(), superpowersPluginDir: "/tmp/fake-superpowers",
+      maxBudgetUsd: 10, dryRun: false, disposableRoot: root, outputsDir, spawnImpl,
+    });
+    const audit = JSON.parse(readFileSync(join(outputsDir, "audited.json"), "utf8"));
+    assert.equal(audit.verdict.verdict, "PASS");
+    assert.ok(audit.stdout, "the raw output must still be preserved alongside the verdict");
   });
 
   test("runLiveEvals refuses a non-dry-run call without spawnImpl or disposableRoot", async () => {

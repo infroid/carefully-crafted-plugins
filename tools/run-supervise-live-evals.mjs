@@ -50,18 +50,41 @@ export class LiveEvalError extends Error {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 
-// The file/search tools plus the bounded local `node`/`git status|add|commit`
-// Bash forms this eval genuinely needs inside a disposable repository — and
-// NOTHING else. No `git push`, `git reset`, `git clean`, no network tool, no
-// arbitrary shell interpreter. This is the SAME allowlist both the dry-run
-// argv build and the real run use — there is only one allowlist in this
-// file, not one for tests and a looser one for production.
+// EXACTLY WHAT THE CASES NEED, AND NOTHING THAT CAN EXECUTE CODE.
+//
+// This list previously included `Bash(node:*)`, `Bash(git add:*)` and
+// `Bash(git commit:*)`. `Bash(node:*)` was a REAL HOLE, not a stylistic one:
+// under `--permission-mode dontAsk`, `node -e '<anything>'` is precisely as
+// powerful as `Bash(*)` — arbitrary filesystem writes outside the disposable
+// repository, and outright network access. A test asserting "`Bash(*)` is not
+// allowlisted" gave false comfort about a boundary that was not actually
+// there, because the dangerous grant was spelled differently from the
+// spellings the test enumerated.
+//
+// All three boundary cases in tests/evals/supervise-boundary-cases.json are
+// READ-AND-REPORT-JSON planning prompts: they read seeded files and emit a
+// JSON verdict. None of them executes anything, and none of them writes or
+// commits. So the honest allowlist is the read-only file/search tools plus
+// two read-only `git` queries for repository orientation.
+//
+// What this permits, stated plainly: the eval subject can READ repository
+// files and run `git status` / `git log`. It cannot execute code, write or
+// modify any file, install anything, or reach the network.
+//
+// If a future case genuinely needs execution, DO NOT re-add a bare
+// interpreter grant. Add a narrowly-scoped grant naming a specific script
+// path that the fixture itself seeds, and extend the bound test in
+// tests/unit/supervise-live-evals.test.mjs to match — that test asserts the
+// closed property (every entry is read-only), so it will fail loudly rather
+// than silently accepting a new interpreter.
+//
+// This is the SAME allowlist both the dry-run argv build and the real run
+// use — there is only one allowlist in this file, not one for tests and a
+// looser one for production.
 export const ALLOWED_TOOLS = Object.freeze([
   "Read", "Glob", "Grep",
-  "Bash(node:*)",
   "Bash(git status:*)",
-  "Bash(git add:*)",
-  "Bash(git commit:*)",
+  "Bash(git log:*)",
 ]);
 
 // The three assertion kinds this eval's declarative cases fixture may ever
@@ -69,14 +92,42 @@ export const ALLOWED_TOOLS = Object.freeze([
 // order rather than artificial parallelism; an override of a misleading
 // grade must always carry a non-empty reason; and explicit Converge evidence
 // must become a planning CONSTRAINT without Converge itself launching
-// implementation. Grading against these is Step 4's (separately authorized,
-// paid) job — this allowlist only decides what a case fixture is even
-// ALLOWED to claim, which is a free, deterministic, no-provider-usage check.
+// implementation.
+//
+// Each type's REQUIRED PARAMETERS are declared alongside it and enforced by
+// validateCasesFixture, so a case cannot declare an assertion whose
+// parameters the evaluator would then be unable to use. Without this the
+// parameters were inert decoration: a fixture could say
+// `{"type": "single_work_order"}` with no `max_task_count` and nothing
+// anywhere would notice until grading silently had nothing to compare.
 export const ASSERTION_TYPES = Object.freeze([
   "single_work_order",
   "override_requires_reason",
   "converge_evidence_constrains_planning_without_launch",
 ]);
+
+const ASSERTION_PARAM_VALIDATORS = Object.freeze({
+  single_work_order(a, ctx) {
+    if (!Number.isInteger(a.max_task_count) || a.max_task_count < 1) {
+      throw new LiveEvalError(`${ctx}.assertion.max_task_count must be an integer >= 1 for "single_work_order"`);
+    }
+  },
+  override_requires_reason(a, ctx) {
+    if (!Number.isInteger(a.grader_score) || a.grader_score < 1 || a.grader_score > 5) {
+      throw new LiveEvalError(`${ctx}.assertion.grader_score must be an integer 1-5 for "override_requires_reason"`);
+    }
+  },
+  converge_evidence_constrains_planning_without_launch(a, ctx) {
+    if (typeof a.expected_strategy_pattern !== "string" || a.expected_strategy_pattern.trim().length === 0) {
+      throw new LiveEvalError(`${ctx}.assertion.expected_strategy_pattern must be a non-empty string for "converge_evidence_constrains_planning_without_launch"`);
+    }
+    try {
+      new RegExp(a.expected_strategy_pattern, "i");
+    } catch (err) {
+      throw new LiveEvalError(`${ctx}.assertion.expected_strategy_pattern is not a valid regular expression: ${err.message}`);
+    }
+  },
+});
 
 const CASE_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 const MAX_PROMPT_CHARS = 20000;
@@ -144,6 +195,7 @@ export function validateCasesFixture(raw) {
     if (!ASSERTION_TYPES.includes(c.assertion.type)) {
       throw new LiveEvalError(`${ctx}.assertion.type "${c.assertion.type}" is unknown — must be one of ${ASSERTION_TYPES.join(", ")}`);
     }
+    ASSERTION_PARAM_VALIDATORS[c.assertion.type](c.assertion, ctx);
     return c;
   });
 
@@ -309,6 +361,117 @@ export function parseClaudeCostResult(stdout) {
 }
 
 // --------------------------------------------------------------------------
+// Assertion grading — the per-case VERDICT
+// --------------------------------------------------------------------------
+
+export const VERDICT = Object.freeze({ PASS: "PASS", FAIL: "FAIL", INCONCLUSIVE: "INCONCLUSIVE" });
+
+const pass = (reason, observed) => ({ verdict: VERDICT.PASS, reason, observed });
+const fail = (reason, observed) => ({ verdict: VERDICT.FAIL, reason, observed });
+// EVERY path that cannot actually evaluate the declared property lands here.
+// "I could not tell" is never reported as success — see the fallthrough note
+// on evaluateCaseAssertion below.
+const inconclusive = (reason, observed = null) => ({ verdict: VERDICT.INCONCLUSIVE, reason, observed });
+
+// Models reliably emit their JSON either bare or inside a fenced block, so
+// both are accepted. Anything else is INCONCLUSIVE rather than coerced.
+function extractModelJson(resultText) {
+  if (typeof resultText !== "string" || resultText.trim().length === 0) return null;
+  const fenced = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i.exec(resultText);
+  const candidates = [];
+  if (fenced) candidates.push(fenced[1]);
+  const firstBrace = resultText.indexOf("{");
+  const lastBrace = resultText.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) candidates.push(resultText.slice(firstBrace, lastBrace + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (isPlainObject(parsed)) return parsed;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
+// Grades ONE case's captured Claude result envelope against that case's own
+// declared assertion, returning {verdict, reason, observed}.
+//
+// THE FALLTHROUGH RULE, APPLIED TO THIS FUNCTION ITSELF. Every branch that
+// cannot evaluate the property — no result text, no JSON, a missing or
+// wrongly-typed field, or an assertion type this evaluator does not
+// implement — returns INCONCLUSIVE. There is deliberately no `default:` that
+// falls through to PASS, and the unknown-type branch does NOT delegate its
+// safety to validateCasesFixture having already rejected unknown types: a
+// recipient that cannot fail is not a guard, so this function fails closed on
+// its own regardless of what validated the fixture upstream.
+export function evaluateCaseAssertion(caseObj, envelope) {
+  const assertion = caseObj?.assertion;
+  if (!isPlainObject(assertion) || typeof assertion.type !== "string") {
+    return inconclusive("case has no usable assertion declaration");
+  }
+  if (!isPlainObject(envelope)) {
+    return inconclusive("no result envelope was captured for this case");
+  }
+  const model = extractModelJson(envelope.result);
+  if (model === null) {
+    return inconclusive("the captured result contained no parseable JSON object to grade");
+  }
+
+  switch (assertion.type) {
+    case "single_work_order": {
+      const n = model.task_count;
+      if (!Number.isInteger(n) || n < 1) {
+        return inconclusive(`task_count is missing or not an integer >= 1 (got ${JSON.stringify(n)})`, model);
+      }
+      return n <= assertion.max_task_count
+        ? pass(`task_count ${n} is within the declared maximum of ${assertion.max_task_count}`, model)
+        : fail(`task_count ${n} exceeds the declared maximum of ${assertion.max_task_count} — coupled work was split into artificial parallelism`, model);
+    }
+
+    case "override_requires_reason": {
+      const score = model.claude_score;
+      if (!Number.isInteger(score) || score < 1 || score > 5) {
+        return inconclusive(`claude_score is missing or outside 1-5 (got ${JSON.stringify(score)})`, model);
+      }
+      const reason = model.override_reason;
+      const hasReason = typeof reason === "string" && reason.trim().length > 0;
+      if (!(reason === null || typeof reason === "string")) {
+        return inconclusive(`override_reason must be a string or null (got ${JSON.stringify(reason)})`, model);
+      }
+      if (score === assertion.grader_score) {
+        return hasReason
+          ? fail(`claude_score ${score} agrees with the grader, so override_reason must be null`, model)
+          : pass(`claude_score ${score} agrees with the grader and carries no override reason`, model);
+      }
+      return hasReason
+        ? pass(`claude_score ${score} overrides the grader's ${assertion.grader_score} with a non-empty reason`, model)
+        : fail(`claude_score ${score} overrides the grader's ${assertion.grader_score} without a non-empty override_reason`, model);
+    }
+
+    case "converge_evidence_constrains_planning_without_launch": {
+      const launched = model.converge_launched;
+      if (typeof launched !== "boolean") {
+        return inconclusive(`converge_launched is missing or not a boolean (got ${JSON.stringify(launched)})`, model);
+      }
+      const strategy = model.invalidation_strategy;
+      if (typeof strategy !== "string" || strategy.trim().length === 0) {
+        return inconclusive(`invalidation_strategy is missing or empty (got ${JSON.stringify(strategy)})`, model);
+      }
+      if (launched) {
+        return fail("Converge was launched during a planning-only step", model);
+      }
+      return new RegExp(assertion.expected_strategy_pattern, "i").test(strategy)
+        ? pass(`planning adopted the recorded strategy ("${strategy}") without launching Converge`, model)
+        : fail(`planning ignored the recorded Converge evidence — strategy "${strategy}" does not match /${assertion.expected_strategy_pattern}/i`, model);
+    }
+
+    default:
+      return inconclusive(`no evaluator is implemented for assertion type "${assertion.type}"`, model);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Disposable per-case repositories
 // --------------------------------------------------------------------------
 
@@ -407,10 +570,17 @@ export async function runLiveEvals(options) {
     const spawnResult = await spawnImpl(claudeBin, argv, { cwd: caseRoot, env });
     const parsedCost = parseClaudeCostResult(spawnResult?.stdout ?? "");
 
+    // GRADE THE CASE. Done before the cost gates below so that a case whose
+    // cost data is untrustworthy still leaves its own graded verdict on disk
+    // for audit — the two judgements are independent, and losing the verdict
+    // because the accounting was malformed would discard evidence that was
+    // already paid for.
+    const verdict = evaluateCaseAssertion(c, parsedCost.ok ? parsedCost.raw : null);
+
     if (outputsDir) {
       writeCaseOutput(outputsDir, c.id, {
         caseId: c.id, argv, caseRoot, remainingBudgetBeforeUsd: remaining,
-        stdout: spawnResult?.stdout ?? null, parsedCost,
+        stdout: spawnResult?.stdout ?? null, parsedCost, verdict,
       });
     }
 
@@ -430,8 +600,26 @@ export async function runLiveEvals(options) {
     remaining -= parsedCost.costUsd;
     results.push({
       caseId: c.id, dryRun: false, argv, costUsd: parsedCost.costUsd, remainingAfterUsd: remaining, caseRoot,
+      verdict: verdict.verdict, verdictReason: verdict.reason, observed: verdict.observed,
     });
   }
+
+  const verdictCounts = { PASS: 0, FAIL: 0, INCONCLUSIVE: 0 };
+  for (const r of results) {
+    if (r.verdict) verdictCounts[r.verdict] += 1;
+  }
+
+  // `allAssertionsPassed` is a CLAIM ABOUT THE WHOLE RUN, so it requires the
+  // whole run: every declared case attempted, every one graded PASS, nothing
+  // inconclusive, no early stop, and no fail-closed. A run that ran out of
+  // budget after two of three cases has not shown that the third case passes,
+  // and must never say it did. Dry-run grades nothing, so it is never true
+  // there either.
+  const allAssertionsPassed = !dryRun
+    && !stoppedEarly
+    && failedClosed === null
+    && results.length === cases.length
+    && verdictCounts.PASS === cases.length;
 
   return {
     totalBudgetUsd: totalBudget,
@@ -439,6 +627,8 @@ export async function runLiveEvals(options) {
     remainingBudgetUsd: Math.max(0, Math.round(remaining * 1e6) / 1e6),
     stoppedEarly,
     failedClosed,
+    verdictCounts,
+    allAssertionsPassed,
     results,
   };
 }
@@ -516,7 +706,12 @@ export async function main(argv, io = { stdout: process.stdout, stderr: process.
     });
     io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     io.stdout.write(`\noutputs preserved at: ${outputsDir}\n`);
-    return result.failedClosed ? 1 : 0;
+    // A non-zero exit for anything short of "every case attempted and graded
+    // PASS": a fail-closed cost problem, a FAILED assertion, or an
+    // INCONCLUSIVE one. An inconclusive verdict is deliberately NOT treated
+    // as success — the eval did not demonstrate the property it exists to
+    // demonstrate.
+    return result.allAssertionsPassed ? 0 : 1;
   } catch (err) {
     io.stderr.write(`${err.message}\n`);
     return err instanceof LiveEvalError ? 2 : 1;

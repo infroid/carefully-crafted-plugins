@@ -35,7 +35,10 @@
         }
       },
       "prompt": "You are acting as the planning step of /contexthub:supervise. This repository's docs/converge-evidence.md records the binding conclusion of a Converge debate that already took place about lib/cache.js's cache invalidation strategy. Read that file and lib/cache.js. Do not write any code, do not modify any files, and do not invoke or launch Converge, any implementation work, or any other tool — this step is planning-only. Report, as plain JSON, a field named \"invalidation_strategy\" (a short string naming the strategy the task graph's objective text must require, taken from the recorded evidence) and a field named \"converge_launched\" (a boolean that must be false, since this step never launches Converge itself).",
-      "assertion": { "type": "converge_evidence_constrains_planning_without_launch" }
+      "assertion": {
+        "type": "converge_evidence_constrains_planning_without_launch",
+        "expected_strategy_pattern": "event[- ]?based|updated_at"
+      }
     }
   ]
 }

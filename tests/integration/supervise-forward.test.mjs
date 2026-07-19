@@ -467,7 +467,14 @@ describe("scenario 3: security migration (score 5, approval pending, one max tas
         { id: "mig2", wave: 1, objective: "apply a second migration", depends_on: [], read_paths: [], write_paths: ["other.sql"], acceptance_ids: ["AC-02"], verify: [OK_VERIFY], effort: "max", risk: "high" },
       ],
     };
-    assert.throws(() => validateTaskGraph(twoMaxGraph, { runId, objectFormat: "sha1" }), ContractError, "at most one \"max\" task must be permitted per wave");
+    // Matches the error MESSAGE, not merely the class: with only a class
+    // check this would have passed on ANY ContractError — including one
+    // thrown by unrelated earlier validation over the graph shape — and so
+    // would not actually have proven the max-effort ceiling fired.
+    assert.throws(
+      () => validateTaskGraph(twoMaxGraph, { runId, objectFormat: "sha1" }),
+      { name: "ContractError", message: /at most one "max" task is permitted per wave/ },
+    );
 
     const graphPath = writeJson(harness.root, "graph", graph);
     const acceptRes = await call(["accept-plan", "--run", runId, "--plan-file", join(integrationWorktree, relPath), "--graph-file", graphPath], integrationWorktree, harness.baseEnv);
@@ -1073,18 +1080,30 @@ describe("scenario 11: wave-two review leaves a criterion blocked (no third wave
 
     // --- STRUCTURAL DEMONSTRATIONS (not merely a CLI rejection message) ---
 
-    // (a) The Phase enum itself has no WAVE_3_* member and never will
-    // without a code change to state.mjs.
-    assert.deepEqual(Object.values(Phase).filter((p) => /3/.test(p)), [], "the Phase enum must have no third-wave member");
+    // (a) The Phase enum is EXHAUSTIVELY pinned to its exact 16 members.
+    //
+    // This deliberately replaces an earlier `/3/`-substring filter, which was
+    // a proxy rather than the property: it caught a hypothetical `WAVE_3_*`
+    // but would have sailed past `WAVE_THREE_RUNNING` or `SECOND_CORRECTION`
+    // — i.e. it only rejected one SPELLING of a third wave, not the addition
+    // of one. Pinning the complete set means ANY new phase, however named,
+    // fails here and forces a deliberate re-review of this scenario.
+    assert.deepEqual(Object.values(Phase).sort(), [
+      "APPROVAL_PENDING", "BLOCKED", "COMPLETE", "CORRECTIONS_REVIEWED",
+      "FINISH_ACTION_PENDING", "FINISH_PENDING", "GRADED", "GRADING",
+      "INITIALIZED", "PLANNED", "REVIEWED", "VERIFYING",
+      "WAVE_1_COMPLETE", "WAVE_1_RUNNING", "WAVE_2_COMPLETE", "WAVE_2_RUNNING",
+    ].sort(), "the Phase enum's exact membership is pinned — adding ANY phase (a third wave under any spelling, or any other state) must fail this scenario deliberately");
 
     // (b) A correction graph literally cannot declare a third wave — the
     // data-level contract rejects anything but wave: 2, independent of any
-    // CLI orchestration.
+    // CLI orchestration. The second argument matches the error MESSAGE (not
+    // just the class), so this cannot start passing for an unrelated
+    // ContractError thrown earlier in validation.
     const thirdWaveGraph = { ...correctionGraph, wave: 3 };
     assert.throws(
       () => validateCorrectionGraph(thirdWaveGraph, { runId, objectFormat: "sha1", expectedBaseCommit: wave1Head, waveOneTasksById: { w1t: wave1Graph.tasks[0] }, acceptanceIds: ["AC-01"], nonSatisfiedAcceptanceIds: ["AC-01"], claudeScore: 3, approvalFlags: [] }),
-      ContractError,
-      "correction graph.wave must be exactly 2",
+      { name: "ContractError", message: /correction graph\.wave must be exactly 2/ },
     );
 
     // (c) Recovering out of BLOCKED returns to WAVE_2_COMPLETE — never back
