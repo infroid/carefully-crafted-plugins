@@ -344,12 +344,23 @@ function runReviewType({ specPath, resultPath }) {
   process.exit(0);
 }
 
+// Same shape as codex-invoke.mjs's KNOWN_FLAGS: an unrecognized flag must be
+// a hard error, not a silently-ignored no-op — a typo'd flag name (e.g.
+// `--specpath` for `--spec-path`) must not be able to slip past validation
+// under a key nothing ever reads.
+const KNOWN_FLAGS = new Set(["spec-path", "type"]);
+
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
     const key = a.slice(2);
+    if (!KNOWN_FLAGS.has(key)) {
+      console.error(`result-handler: unknown flag --${key}`);
+      console.error(`Known flags: ${[...KNOWN_FLAGS].map((f) => `--${f}`).join(", ")}`);
+      process.exit(2);
+    }
     const next = argv[i + 1];
     if (next === undefined || next.startsWith("--")) {
       args[key] = true;

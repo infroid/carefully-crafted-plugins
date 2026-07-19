@@ -9,7 +9,6 @@
 
 ## Network
 - (e.g. no outbound HTTP except to allowed domains)
-- (e.g. respect robots.txt and rate limits in browser tasks)
 
 ## Data
 - (e.g. never log PII; redact emails and IPs in any captured output)

@@ -77,12 +77,31 @@ const DEFAULT_MODEL = "gpt-5.6-sol";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_VERBOSITY = "low";
 
+// The exact, exhaustive set of flags this wrapper understands (see the
+// Options block in the header comment). An unrecognized flag must be a hard
+// error, not a silent no-op: `--effort ultra` (the real flag is
+// `--reasoning-effort`) previously parsed fine, was stored under
+// `args["effort"]`, and was never read by anything — so the call silently
+// ran at the DEFAULT reasoning effort instead of the one the caller asked
+// for, or being rejected. "Reject an out-of-range effort like `ultra`" is
+// this wrapper's whole reason for existing (see REASONING_EFFORTS above);
+// a typo'd flag name must not be a backdoor around that validation.
+const KNOWN_FLAGS = new Set([
+  "spec-path", "raw", "resume-last", "resume", "imagegen", "ref",
+  "model", "reasoning-effort", "verbosity", "sandbox", "output-schema", "verbose",
+]);
+
 function parseArgs(argv) {
   const args = { ref: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
     const key = a.slice(2);
+    if (!KNOWN_FLAGS.has(key)) {
+      console.error(`codex-invoke: unknown flag --${key}`);
+      console.error(`Known flags: ${[...KNOWN_FLAGS].map((f) => `--${f}`).join(", ")}`);
+      process.exit(2);
+    }
     const next = argv[i + 1];
     const hasVal = next !== undefined && !next.startsWith("--");
     if (key === "ref") {

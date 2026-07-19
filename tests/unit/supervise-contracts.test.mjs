@@ -573,6 +573,19 @@ describe("validateVerificationCommand", () => {
     });
   }
 
+  // Final whole-branch review finding: SHELL_INTERPRETERS already lists
+  // cmd.exe/powershell.exe/pwsh.exe explicitly, so Windows was in scope --
+  // but bash.exe/sh.exe (exactly what Git-for-Windows installs) were
+  // ACCEPTED, because basenameOf() never stripped the .exe extension before
+  // comparing against the bare "bash"/"sh" entries.
+  for (const shell of ["bash.exe", "sh.exe", "BASH.EXE", "C:\\Windows\\System32\\bash.exe"]) {
+    test(`rejects the .exe bypass: ${shell}`, () => {
+      const v = validVerificationCommand();
+      v.argv = [shell, "-c", "echo hi"];
+      assertThrowsContract(() => validateVerificationCommand(v, []), /shell interpreter/);
+    });
+  }
+
   for (const cmd of [["rm", "-rf", "dist"], ["sudo", "reboot"], ["curl", "http://x"], ["wget", "http://x"]]) {
     test(`rejects unsafe command: ${cmd[0]}`, () => {
       const v = validVerificationCommand();

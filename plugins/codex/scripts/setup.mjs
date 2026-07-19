@@ -150,4 +150,16 @@ function main() {
   explicitSetup();
 }
 
-main();
+// /codex:setup is the first thing a new user runs. `listPackagedDefaults`
+// (readdirSync over DEFAULTS_ROOT) and `scaffoldFiles` (copyFileSync) touch
+// the filesystem and were previously unguarded, so a corrupt/missing
+// packaged-defaults directory or a permissions problem surfaced as a raw
+// Node stack trace instead of an actionable message. Catching at the top
+// level, once, covers every filesystem call inside main() without needing a
+// try/catch at each call site.
+try {
+  main();
+} catch (err) {
+  console.error(`[codex] error: ${err.message}`);
+  process.exit(1);
+}
