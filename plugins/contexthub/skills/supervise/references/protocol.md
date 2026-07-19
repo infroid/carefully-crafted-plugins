@@ -118,6 +118,37 @@ by that path alone, never by an argv flag — lands on the original session.
 `resume-exact` requires unchanged `effort` and a `write_paths` subset of
 the source wave-one task's ownership.
 
+## Finishing: the decision file and the `target` contract
+
+`choose-finish --decision-file <path>` takes a JSON object recording the
+user's exact choice. Its `target` field is the ref the work lands on, and it
+is **mandatory for `merge` and `push`**:
+
+```json
+{ "target": "release" }
+```
+
+`complete-finish` verifies those two choices by proving the integration HEAD
+is reachable from that recorded ref. Without a target there is nothing to
+verify against, so completion would collapse to "the worktree is clean and
+some evidence file was supplied" — which would accept an action that was
+never performed. `choose-finish` therefore refuses a missing or empty
+target up front, while the user is still being asked, rather than
+discovering it at completion time.
+
+The target may **not** be this run's own integration branch. That check
+resolves the ref through git (`rev-parse --symbolic-full-name`) rather than
+comparing spellings, so `carefully-crafted/<run-id>/integration`,
+`refs/heads/carefully-crafted/<run-id>/integration`, and `HEAD` evaluated
+inside the integration worktree are all rejected as the same vacuous
+self-reference — a branch is always an ancestor of itself, so such a target
+would make the completion check trivially pass.
+
+`keep`, `discard`, and `pr` require no target. `pr` is deliberately
+excluded: its meaningful evidence is the remote pull request, which this
+transport cannot check without network access, so it stays on the
+bounded-evidence path rather than pretending to a guarantee it cannot make.
+
 ## Cleanup safety
 
 Finishing is two-phase: `choose-finish` records the exact choice/target
@@ -127,8 +158,16 @@ claiming completion. Discard never lets a methodology skill delete
 anything — `cleanup --mode discard` runs from the original repository,
 validates the pre-recorded discard decision, refuses if any run worktree is
 dirty, and only then removes proven-clean worktrees and this run's own
-branches. Optional post-completion cleanup requires a fresh decision file
-and never removes the kept integration worktree/branch.
+branches. Both cleanup modes refuse to run from a cwd inside a worktree
+they would remove, and both prune stale worktree registrations before
+deleting branches so a worktree whose directory vanished out of band does
+not dead-end the command.
+
+Optional post-completion cleanup requires a fresh decision file and never
+removes the kept integration worktree/branch. A leftover task worktree that
+is still dirty is left completely intact — both the worktree and its branch
+— and reported under `cleanup.json`'s `skipped` array rather than failing
+the command.
 
 ## Receipts
 

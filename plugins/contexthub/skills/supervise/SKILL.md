@@ -11,9 +11,8 @@ You are the planner and reviewer. `supervise.mjs`
 (`${CLAUDE_PLUGIN_ROOT}/scripts/supervise.mjs`) is the host-authoritative
 transport: it owns the phase machine, the run ledger, git isolation, and
 every Codex spawn. You never invoke Codex or write to the ledger yourself —
-every state change goes through a `supervise.mjs` subcommand. Read
-`references/protocol.md` before your first run; it holds detail this body
-intentionally omits.
+every state change goes through a subcommand. Read `references/protocol.md`
+before your first run; it holds detail this body intentionally omits.
 
 ## 1. Initialize
 
@@ -26,11 +25,10 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/supervise.mjs init --request-file <temp-path>
 `init` completes Git/Codex/auth/Superpowers preflight and creates the
 integration worktree before any methodology skill writes anything. Once it
 confirms the ledger copy, delete the temp file. Record `run_id` and
-`integration_worktree` from its output: every later command needs the run
-ID, and from here on every planning/execution/verification/finish-action
-tool's cwd is `integration_worktree` — only the discard/post-complete
-`cleanup` step runs from the original repository, after validating this
-same run's ledger.
+`integration_worktree`: every later command needs the run ID, and from here
+on every planning/execution/verification/finish-action tool's cwd is
+`integration_worktree` — only the discard/post-complete `cleanup` step runs
+from the original repository, after validating this run's ledger.
 
 ## 2. Grade
 
@@ -82,8 +80,8 @@ a third wave — the transport structurally refuses it.
 Order Codex workers by installed skill name only (no `superpowers:` prefix,
 no `@` includes): `test-driven-development`, `systematic-debugging` when
 applicable, `receiving-code-review` for corrections, and
-`verification-before-completion`. Every order explicitly prohibits
-subagent-driven or parallel-agent skills — a worker is always alone.
+`verification-before-completion`. Every order prohibits subagent-driven or
+parallel-agent skills — a worker is always alone.
 
 ## 8. Verify
 
@@ -97,7 +95,10 @@ host evidence, not your own belief that things look done.
 From the integration worktree, state **REQUIRED SUB-SKILL:** Use
 `superpowers:finishing-a-development-branch`, present its exact choices, and
 obtain fresh user consent. Call `choose-finish` **before** taking any
-action. `keep` is the no-external-action default. For merge/push/PR,
+action. `keep` is the no-external-action default. `merge` and `push`
+additionally require a `"target"` ref in the decision file — the ref the
+work lands on — because that is what `complete-finish` verifies the action
+against; it may not be this run's own integration branch. For merge/push/PR,
 constrain Superpowers to only the recorded action, never removing the
 integration worktree, then call `complete-finish` only after it succeeds.
 For discard, return to the original repository and call supervisor-owned

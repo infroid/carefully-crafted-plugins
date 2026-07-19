@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   mkdtempSync, writeFileSync, mkdirSync, chmodSync, readFileSync, existsSync,
-  symlinkSync, realpathSync, rmSync,
+  symlinkSync, realpathSync, rmSync, readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -977,13 +977,57 @@ describe("choose-finish: a verifiable target is mandatory for merge/push", () =>
     assert.equal(res.code, 2, res.rawErr);
   });
 
-  test("a self-referential target (this run's own integration branch) is refused as vacuous", async () => {
+  // EVERY SPELLING OF THE SELF-REFERENCE, NOT JUST THE SHORT ONE.
+  //
+  // The first fix compared the target as a raw string against the SHORT
+  // branch name, which caught exactly one spelling. The fully-qualified ref
+  // and `HEAD` (evaluated in the integration worktree, where it IS that
+  // branch) both slipped past and then made `isAncestorOf` vacuously true —
+  // a branch is always an ancestor of itself — so complete-finish reported
+  // COMPLETE for a merge that never happened. These three cases are one
+  // parameterized test because they must never diverge again: the fix
+  // resolves the ref through git rather than matching spellings, so a
+  // fourth spelling cannot reopen the hole.
+  for (const [label, buildTarget] of [
+    ["short branch name", (runId) => `carefully-crafted/${runId}/integration`],
+    ["fully-qualified ref", (runId) => `refs/heads/carefully-crafted/${runId}/integration`],
+    ["HEAD (resolves to the integration branch in that worktree)", () => "HEAD"],
+  ]) {
+    test(`a self-referential target is refused as vacuous — spelling: ${label}`, async () => {
+      const harness = makeHarness();
+      const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+      const selfTarget = writeJson(harness.root, "decision.json", { target: buildTarget(runId) });
+      const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", selfTarget], integrationWorktree, waveEnv);
+      assert.equal(res.code, 2, res.rawErr);
+      assert.match(res.rawErr, /vacuously true/);
+
+      // The run never advanced, so no completion is reachable from here —
+      // this is what makes the refusal meaningful rather than cosmetic.
+      const status = await call(["status", "--run", runId], integrationWorktree, waveEnv);
+      assert.equal(status.out.phase, "FINISH_PENDING");
+    });
+  }
+
+  test("a GENUINE target is still accepted and still verified — the resolved-ref guard does not over-block", async () => {
+    // The negative control for the three tests above: proves the guard
+    // rejects self-reference specifically, not merge targets generally.
     const harness = makeHarness();
     const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
-    const selfTarget = writeJson(harness.root, "decision.json", { target: `carefully-crafted/${runId}/integration` });
-    const res = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", selfTarget], integrationWorktree, waveEnv);
-    assert.equal(res.code, 2, res.rawErr);
-    assert.match(res.rawErr, /vacuously true/);
+    execFileSync("git", ["branch", "release"], { cwd: harness.repo });
+    const decisionPath = writeJson(harness.root, "decision.json", { target: "release" });
+    const chooseRes = await call(["choose-finish", "--run", runId, "--choice", "merge", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+    assert.equal(chooseRes.code, 0, chooseRes.rawErr);
+
+    // ...and the ancestry check is still real: unmerged fails, merged passes.
+    const evidencePath = writeJson(harness.root, "evidence.json", { note: "attempted" });
+    const beforeMerge = await call(["complete-finish", "--run", runId, "--evidence-file", evidencePath], integrationWorktree, waveEnv);
+    assert.equal(beforeMerge.code, 1, "an unperformed merge must not complete");
+
+    const integrationHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: integrationWorktree, encoding: "utf8" }).trim();
+    execFileSync("git", ["update-ref", "refs/heads/release", integrationHead], { cwd: harness.repo });
+    const afterMerge = await call(["complete-finish", "--run", runId, "--evidence-file", evidencePath], integrationWorktree, waveEnv);
+    assert.equal(afterMerge.code, 0, afterMerge.rawErr);
+    assert.equal(afterMerge.out.phase, "COMPLETE");
   });
 
   test("keep and discard still need no target (they have no ref-verified action)", async () => {
@@ -1273,5 +1317,104 @@ describe("recover: ambiguous dirty task worktrees", () => {
     const res = await call(["recover", "--run", runId], integrationWorktree, waveEnv);
     assert.equal(res.code, 0, res.rawErr);
     assert.equal(res.out.phase, "WAVE_1_COMPLETE");
+  });
+});
+
+// --------------------------------------------------------------------------
+// cleanup --mode post-complete (round-2 Important 2 + Minor)
+// --------------------------------------------------------------------------
+
+describe("cleanup --mode post-complete", () => {
+  async function completeAKeepRun(harness) {
+    const { runId, integrationWorktree, waveEnv } = await bootstrapToFinishPending(harness);
+    const decisionPath = writeJson(harness.root, "decision.json", { target: null });
+    await call(["choose-finish", "--run", runId, "--choice", "keep", "--decision-file", decisionPath], integrationWorktree, waveEnv);
+    const done = await call(["complete-finish", "--run", runId], integrationWorktree, waveEnv);
+    assert.equal(done.code, 0, done.rawErr);
+    assert.equal(done.out.phase, "COMPLETE");
+    return { runId, integrationWorktree, waveEnv };
+  }
+
+  test("a DIRTY leftover task worktree is skipped and reported, not a hard failure", async () => {
+    // Same loops-disagree defect as the discard dead end, in the mode that
+    // got retested least: the removal loop correctly skipped a dirty
+    // worktree, but the branch loop then attempted its delete anyway and
+    // died with a raw GitError, so cleanup.json was never written and
+    // CLEANUP_POST_COMPLETE was never recorded. The prune cannot help here —
+    // the directory still exists, so there is no stale registration.
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await completeAKeepRun(harness);
+
+    const repoInfo = inspectRepository(harness.repo);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+    const taskWorktree = worktreePaths.waveWorktreePath(1, "t1");
+    assert.ok(existsSync(taskWorktree), "the wave-1 task worktree should still exist after the wave");
+    writeFileSync(join(taskWorktree, "a.txt"), "uncommitted leftover work\n");
+    assert.equal(isWorktreeClean(taskWorktree), false, "fixture must genuinely be dirty");
+
+    const pcDecision = writeJson(harness.root, "pc.json", { confirm: "post-complete", run_id: runId });
+    const res = await call(["cleanup", "--run", runId, "--mode", "post-complete", "--decision-file", pcDecision], harness.repo, waveEnv);
+    assert.equal(res.code, 0, res.rawErr);
+    assert.equal(res.out.phase, "COMPLETE");
+
+    // The ledger records the skip rather than silently omitting it.
+    const cleanupJson = JSON.parse(readFileSync(res.out.artifact, "utf8"));
+    assert.equal(cleanupJson.mode, "post-complete");
+    assert.ok(Array.isArray(cleanupJson.skipped), "cleanup.json must carry a skipped[] array");
+    assert.equal(cleanupJson.skipped.length, 1, `expected exactly one skipped worktree, got ${JSON.stringify(cleanupJson.skipped)}`);
+    assert.equal(cleanupJson.skipped[0].path, taskWorktree);
+
+    // The dirty work is left completely intact, and its branch survives with it.
+    assert.equal(readFileSync(join(taskWorktree, "a.txt"), "utf8"), "uncommitted leftover work\n");
+    const branches = execFileSync("git", ["branch", "--list", `carefully-crafted/${runId}/w1-t1`], { cwd: harness.repo, encoding: "utf8" }).trim();
+    assert.ok(branches.length > 0, "a skipped worktree's branch must stay checked out, not be deleted");
+
+    // The kept integration worktree is never touched by post-complete.
+    assert.ok(existsSync(integrationWorktree), "post-complete must never remove the kept integration worktree");
+  });
+
+  test("a CLEAN leftover task worktree IS removed — the skip keys on dirtiness, not on existing", async () => {
+    const harness = makeHarness();
+    const { runId, integrationWorktree, waveEnv } = await completeAKeepRun(harness);
+
+    const repoInfo = inspectRepository(harness.repo);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+    const taskWorktree = worktreePaths.waveWorktreePath(1, "t1");
+    assert.equal(isWorktreeClean(taskWorktree), true, "fixture must be clean");
+
+    const pcDecision = writeJson(harness.root, "pc.json", { confirm: "post-complete", run_id: runId });
+    const res = await call(["cleanup", "--run", runId, "--mode", "post-complete", "--decision-file", pcDecision], harness.repo, waveEnv);
+    assert.equal(res.code, 0, res.rawErr);
+
+    const cleanupJson = JSON.parse(readFileSync(res.out.artifact, "utf8"));
+    assert.deepEqual(cleanupJson.skipped, [], "a clean worktree must not be reported as skipped");
+    assert.equal(cleanupJson.removed.length, 1);
+    assert.equal(existsSync(taskWorktree), false, "a clean leftover worktree should be removed");
+    assert.ok(existsSync(integrationWorktree), "the kept integration worktree survives regardless");
+  });
+
+  test("a REFUSED post-complete leaves no orphan decision artifact in the ledger", async () => {
+    // post-complete wrote its decision artifact BEFORE the cwd guard fired,
+    // unlike discard which guards first, so every refusal left an orphan
+    // cleanup-post-complete-decision-*.json behind. A refused command must
+    // leave no trace.
+    const harness = makeHarness();
+    const { runId, waveEnv } = await completeAKeepRun(harness);
+
+    const repoInfo = inspectRepository(harness.repo);
+    const paths = getRunPaths(repoInfo, runId);
+    const worktreePaths = ensurePrivateWorktreeRoot(repoInfo, runId);
+    const taskWorktree = worktreePaths.waveWorktreePath(1, "t1");
+
+    const pcDecision = writeJson(harness.root, "pc.json", { confirm: "post-complete", run_id: runId });
+    // Run from inside the doomed task worktree so the cwd guard refuses.
+    const res = await call(["cleanup", "--run", runId, "--mode", "post-complete", "--decision-file", pcDecision], taskWorktree, waveEnv);
+    assert.equal(res.code, 2, res.rawErr);
+    assert.match(res.rawErr, /refusing to run from inside/);
+
+    const orphans = existsSync(paths.reportsDir)
+      ? readdirSync(paths.reportsDir).filter((n) => n.startsWith("cleanup-post-complete-decision-"))
+      : [];
+    assert.deepEqual(orphans, [], `a refused post-complete must write no decision artifact, found: ${orphans.join(", ")}`);
   });
 });

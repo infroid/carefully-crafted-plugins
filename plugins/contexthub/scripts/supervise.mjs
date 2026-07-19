@@ -248,6 +248,38 @@ function isAncestorOf(cwd, ancestor, ref) {
   return r.status === 0;
 }
 
+// COMPARE RESOLVED REFS, NEVER REF SPELLINGS.
+//
+// A raw string comparison against the short branch name caught exactly one
+// spelling of one ref. `refs/heads/carefully-crafted/<run>/integration` and
+// `HEAD` (evaluated in the integration worktree, where it IS that branch)
+// both slipped past it — and then `isAncestorOf` was vacuously true, because
+// a branch is always an ancestor of itself. The result was a reported merge
+// that never happened.
+//
+// Resolving through git is what makes the check spelling-proof: every alias
+// for the same ref collapses to one canonical name, so a fourth spelling
+// cannot reopen the hole the way a denylist of spellings invites.
+//
+// Returns null when the target does not resolve to a symbolic ref (a raw
+// SHA, or a ref that does not exist yet); callers treat that as "not the
+// integration branch" and let the normal ancestry check decide.
+function resolveSymbolicRef(cwd, ref) {
+  const r = spawnSync("git", ["rev-parse", "--symbolic-full-name", ref], { cwd, encoding: "utf8" });
+  if (r.status !== 0) return null;
+  const v = (r.stdout || "").trim();
+  return v.length > 0 ? v : null;
+}
+
+// True when `target`, however it is spelled, resolves to this run's own
+// integration branch — against which any completion check is vacuous.
+function targetIsOwnIntegrationBranch(cwd, runId, target) {
+  const ownRef = `refs/heads/${integrationBranchName(runId)}`;
+  if (target === ownRef || target === integrationBranchName(runId)) return true;
+  const resolved = resolveSymbolicRef(cwd, target);
+  return resolved !== null && resolved === ownRef;
+}
+
 // Force-delete is ONLY ever performed by the supervisor (this CLI, never
 // Superpowers) and ONLY ever within this run's own branch namespace — the
 // prefix check is a hard backstop, not merely documentation.
@@ -1380,9 +1412,12 @@ async function cmdChooseFinish(args, io) {
     throw new CliError(2, `choose-finish: --choice "${args.choice}" requires a non-empty "target" (the ref the work is ${args.choice === "merge" ? "merged into" : "pushed to"}) in the decision file — without it complete-finish has nothing to verify the action against and would accept an unperformed action`);
   }
   // A self-referential target would make the ancestry check vacuously true:
-  // the integration HEAD is always reachable from its own branch.
-  if (target !== null && target === integrationBranchName(runId)) {
-    throw new CliError(2, `choose-finish: target "${target}" is this run's own integration branch — the completion check would be vacuously true against it`);
+  // the integration HEAD is always reachable from its own branch. Compared
+  // through git's own resolution, so every spelling of that ref — short,
+  // fully-qualified, and HEAD evaluated inside the integration worktree —
+  // is caught by one comparison.
+  if (target !== null && targetIsOwnIntegrationBranch(ctx.worktreePaths.integration, runId, target)) {
+    throw new CliError(2, `choose-finish: target "${target}" resolves to this run's own integration branch — the completion check would be vacuously true against it`);
   }
   writeLedgerArtifactExclusive(paths.finishChoice, bytes);
 
@@ -1438,8 +1473,18 @@ async function cmdCompleteFinish(args, io) {
       }
       detail.evidence = evObj;
       if (success && run.finish.target) {
-        success = isAncestorOf(integrationWorktreePath, readHead(integrationWorktreePath), run.finish.target);
-        if (!success) detail.reason = `integration HEAD is not yet reachable from target "${run.finish.target}"`;
+        // Re-check self-reference HERE too, resolved through git, not just
+        // at choose-finish. Otherwise a run whose target was recorded
+        // before the resolved-ref fix — or by any path that bypassed it —
+        // would reach this ancestry check with a target that makes it
+        // vacuously true, which is exactly the reported defect.
+        if (targetIsOwnIntegrationBranch(integrationWorktreePath, runId, run.finish.target)) {
+          success = false;
+          detail.reason = `recorded target "${run.finish.target}" resolves to this run's own integration branch — the ancestry check would be vacuously true, so it proves no action was performed`;
+        } else {
+          success = isAncestorOf(integrationWorktreePath, readHead(integrationWorktreePath), run.finish.target);
+          if (!success) detail.reason = `integration HEAD is not yet reachable from target "${run.finish.target}"`;
+        }
       }
     }
   }
@@ -1535,31 +1580,50 @@ async function cmdCleanup(args, io) {
   if (decision.confirm !== "post-complete" || decision.run_id !== runId) {
     throw new CliError(2, 'cleanup --mode post-complete: --decision-file must contain {"confirm":"post-complete","run_id":"<this run>"}');
   }
-  mkdirSync(paths.reportsDir, { recursive: true });
-  const evidenceDest = path.join(paths.reportsDir, `cleanup-post-complete-decision-${Date.now()}.json`);
-  writeLedgerArtifactExclusive(evidenceDest, decisionBytes);
-
   // Never the kept integration worktree/branch.
   const worktrees = listRunWorktrees({ repoInfo, runId }).filter((wt) => wt.path !== worktreePaths.integration);
   // Same boundary as discard, scoped to exactly what this mode removes: the
   // kept integration worktree is a legitimate cwd here, a doomed task
   // worktree is not.
+  //
+  // GUARD BEFORE WRITING, as discard does. Writing the decision artifact
+  // first left an orphan `cleanup-post-complete-decision-*.json` in
+  // reports/ every time the guard refused — a refused command must leave no
+  // trace in the ledger.
   assertCwdOutside(io, worktrees.map((wt) => wt.path), "cleanup --mode post-complete");
+
+  mkdirSync(paths.reportsDir, { recursive: true });
+  const evidenceDest = path.join(paths.reportsDir, `cleanup-post-complete-decision-${Date.now()}.json`);
+  writeLedgerArtifactExclusive(evidenceDest, decisionBytes);
+
   const removed = [];
+  // A worktree whose directory survives because it is DIRTY keeps its branch
+  // checked out, so its branch delete would fail exactly as the discard path
+  // did — same loops-disagree defect, different mode. The prune cannot help
+  // here: the directory still exists, so there is no stale registration to
+  // clear. Post-complete cleanup is optional and the run is already
+  // COMPLETE, so the right behaviour is to skip that pair and say so, not to
+  // hard-fail the whole command with a raw GitError.
+  const skipped = [];
   for (const wt of worktrees) {
-    if (existsSync(wt.path) && isWorktreeClean(wt.path)) {
+    if (!existsSync(wt.path)) continue;
+    if (isWorktreeClean(wt.path)) {
       removeCleanWorktree({ repoInfo, path: wt.path, branchCheckCwd: repoInfo.topLevel });
       removed.push(wt.path);
+    } else {
+      skipped.push({ path: wt.path, branch: wt.branch ?? null, reason: "uncommitted changes — left intact" });
     }
   }
   pruneStaleWorktreeRegistrations(repoInfo.topLevel);
+  const skippedPaths = new Set(skipped.map((s) => s.path));
   for (const wt of worktrees) {
     if (!wt.branch || !wt.head) continue;
+    if (skippedPaths.has(wt.path)) continue; // its worktree survives; the branch must stay checked out
     if (isCommitIntegrated({ repoInfo, ref: integrationBranchName(runId), commit: wt.head })) {
       forceDeleteRunBranch(repoInfo.topLevel, runId, wt.branch);
     }
   }
-  const summary = { mode: "post-complete", removed, at: new Date().toISOString() };
+  const summary = { mode: "post-complete", removed, skipped, at: new Date().toISOString() };
   writeLedgerArtifactOverwrite(paths.cleanup, Buffer.from(JSON.stringify(summary, null, 2), "utf8"));
   const updated = await updateRun(repoInfo, runId, { type: "CLEANUP_POST_COMPLETE", evidenceRef: "cleanup.json" });
   return { run_id: runId, phase: updated.phase, artifact: paths.cleanup, next: "(done)" };
