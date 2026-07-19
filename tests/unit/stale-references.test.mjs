@@ -347,6 +347,21 @@ const BINARY_EXTENSIONS = Object.freeze(
   ])
 );
 
+/**
+ * THE single definition of "the website" in this file: every top-level HTML
+ * page. Both the stale-string corpus and the spec-claim surface list call
+ * this, so the two can never drift into disagreeing about what the site is
+ * (round-2 review found exactly that drift: one globbed, the other hardcoded
+ * index.html).
+ */
+function rootHtmlPages() {
+  return fs
+    .readdirSync(REPO_ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".html"))
+    .map((e) => e.name)
+    .sort();
+}
+
 function walkFiles(dir) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
@@ -382,10 +397,8 @@ function scanCorpus() {
   // Website: EVERY top-level HTML page, globbed rather than named. Naming
   // index.html specifically meant a second page (docs.html, pricing.html)
   // would publish stale claims without the scan ever opening it.
-  for (const entry of fs.readdirSync(REPO_ROOT, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.toLowerCase().endsWith(".html")) {
-      files.add(path.join(REPO_ROOT, entry.name));
-    }
+  for (const name of rootHtmlPages()) {
+    files.add(path.join(REPO_ROOT, name));
   }
 
   // Tools -- every script, discovered dynamically.
@@ -453,16 +466,110 @@ test("the scan actually visits the plugin/tooling/website corpus (non-vacuous)",
 //
 // Only SOME codex skills build a handoff spec: `exec` explicitly refuses to
 // ("Do **not** run `spec-builder.mjs`") and `resume` never mentions it. Any
-// public surface claiming the spec is written for *every* delegation or
-// *every* call is therefore false. This checks the property -- an unqualified
-// universal claim about spec coverage -- across every public surface at once,
-// rather than pinning the one sentence a reviewer happened to read.
+// public surface claiming the spec is written for *every* delegation is
+// therefore false.
+//
+// GROUND TRUTH is derived at runtime: `codexSkillsBySpecUsage()` reads every
+// codex SKILL.md and classifies it by whether it actually invokes
+// spec-builder.mjs. A seventh skill, or a change to `resume`, reclassifies
+// itself with no edit here.
+//
+// DETECTION IS NECESSARILY INCOMPLETE -- do not over-trust it. Natural
+// language has unbounded ways to assert universality. UNIVERSAL_CLAIM_PATTERNS
+// below matches a deliberately widened but still FINITE set of shapes. Round-2
+// review measured the previous 3x2 quantifier/noun grid at 3 of 12 natural
+// phrasings; the current set is broader but a sufficiently novel phrasing
+// ("in all cases", "unfailingly", "there is no path that skips it") will still
+// slip through. Read a PASS as "no *recognized* over-claim was found", never
+// as "these docs are proven honest".
+//
+// Two structural properties stop it from silently going inert -- both are
+// round-2 review findings, and both are the reason the guard is worth having
+// despite the incomplete matcher:
+//
+//   1. MARKDOWN IS NORMALIZED before matching. Emphasis, code spans, and line
+//      wrapping previously hid claims completely: the qualifier group could
+//      not match `**structured**`, so the live README produced ZERO matches
+//      and a false universal written as `every **single** delegation` passed.
+//      The guard was inert on the exact file the original defect lived on.
+//   2. COVERAGE IS ASSERTED PER SURFACE, not globally. A surface expected to
+//      carry the claim must visibly carry it; it cannot free-ride on another
+//      surface's matches. Previously a single global `> 0` assertion was
+//      satisfied entirely by two manifests while the README was dark.
 // ---------------------------------------------------------------------------
 
 const CODEX_SKILLS_DIR = path.join(REPO_ROOT, "plugins", "codex", "skills");
 // A real invocation, not a mention: `exec` names the script only to forbid it.
 const SPEC_BUILDER_INVOCATION = /node\s+\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/spec-builder\.mjs/;
 const SPEC_COVERAGE_QUALIFIERS = new Set(["structured"]);
+
+// Universality shapes. Widened in round 2 from a 3x2 quantifier/noun grid
+// after it was measured at 3/12 on natural phrasings. Still not exhaustive --
+// see the header note above.
+const UNIVERSAL_CLAIM_PATTERNS = Object.freeze([
+  // "every|each|all|any [<up to two qualifier words>] delegation|call|..."
+  /\b(?:every|each|all|any)\s+((?:[a-z-]+\s+){0,2}?)(?:delegation|call|invocation|request|use|task|skill|time)s?\b/gi,
+  // "always writes|builds|produces|..."
+  /\balways\s+((?:[a-z-]+\s+){0,2}?)(?:writes|builds|produces|creates|generates|emits|includes)\b/gi,
+  // Idiomatic absolutes.
+  /\b100%\s+of\s+the\s+time\b/gi,
+  /\bwithout\s+exception\b/gi,
+  /\bno\s+exceptions\b/gi,
+]);
+
+/**
+ * Removes fenced code blocks. A fenced block is a listing -- a directory
+ * tree, a shell transcript, a config sample -- not prose addressed to the
+ * reader, so it cannot make a product *claim* in the sense this guard checks.
+ *
+ * This is a PRECISION fix to the analysis scope, not an exemption for any
+ * particular string: without it, the README's `## Layout` tree tripped on the
+ * comment `quality-bar.md  # the gates every skill must clear`, which says
+ * nothing about spec coverage. Dropping "skill" from the noun list was the
+ * alternative and was rejected -- round-2 review explicitly requires
+ * "Every skill writes a spec" to be caught, and it still is, in prose.
+ *
+ * Verified not to re-open any known escape: every probe in this file and
+ * every phrasing round-2 review raised is prose, none fenced.
+ */
+function stripFencedCode(text) {
+  return text.replace(/^```[\s\S]*?^```/gm, "\n");
+}
+
+/**
+ * Strips markdown emphasis/code markers and collapses whitespace so a claim
+ * cannot hide behind formatting or a line wrap. Also has the useful side
+ * effect of breaking CSS identifiers like `handoff__layout` into a token that
+ * no longer matches /\bhandoff\b/, keeping stylesheet noise out of scope.
+ */
+function normalizeMarkdown(text) {
+  return text.replace(/[*_`~]/g, "").replace(/\s+/g, " ");
+}
+
+/**
+ * A match is acceptable if an approved qualifier appears inside the matched
+ * phrase or immediately after it (same sentence, short window) -- covering
+ * both "every structured delegation" and "always writes a structured spec".
+ */
+function isQualifiedClaim(sentence, match) {
+  const window = sentence.slice(match.index, match.index + match[0].length + 60).toLowerCase();
+  return [...SPEC_COVERAGE_QUALIFIERS].some((q) => window.includes(q));
+}
+
+/**
+ * True when the matched noun is really part of a filename -- "every SKILL.md",
+ * "every evals.json". A file reference is not a claim about how often the
+ * bridge writes a spec.
+ *
+ * PRECISION fix, not an exemption: it keys off the grammatical shape (a bare
+ * extension immediately following the noun), so no specific string is
+ * excused, and "every skill writes a spec" -- which round-2 review requires
+ * to be caught -- is untouched because "skill" there is not followed by an
+ * extension.
+ */
+function isFilenameReference(sentence, match) {
+  return /^\.[a-z0-9]+\b/i.test(sentence.slice(match.index + match[0].length));
+}
 
 function codexSkillsBySpecUsage() {
   const writesSpec = [];
@@ -487,16 +594,82 @@ function readmeSection(heading) {
   return nextRel === -1 ? content.slice(start) : content.slice(start, start + heading.length + nextRel);
 }
 
+/**
+ * Every surface on which a spec-coverage claim could be published.
+ *
+ * `mustQuantify` marks the surfaces that DO make the claim today. Those must
+ * still visibly make a detectable one -- if the detector stops seeing a
+ * surface's claim (reworded, reformatted, or the matcher regressed), that
+ * surface fails on its own rather than free-riding on another's matches.
+ * Flipping a flag to false is a deliberate statement that the surface no
+ * longer claims spec coverage at all; it is not a way to silence the guard.
+ *
+ * Round-2 review proved the previous four-surface list missed the contexthub
+ * manifest, the non-codex marketplace entries, any new root page, every
+ * SKILL.md, and all of the README outside one section -- injecting the prior
+ * false wording into six surfaces was caught on only one.
+ */
 function publicSpecClaimSurfaces() {
+  const surfaces = [];
   const marketplace = JSON.parse(readFile(".claude-plugin/marketplace.json"));
-  const codexEntry = marketplace.plugins.find((p) => p.name === "codex");
-  const codexManifest = JSON.parse(readFile("plugins/codex/.claude-plugin/plugin.json"));
-  return [
-    { label: "README.md (## How the codex bridge works)", text: readmeSection("## How the codex bridge works") },
-    { label: ".claude-plugin/marketplace.json (codex entry description)", text: codexEntry.description },
-    { label: "plugins/codex/.claude-plugin/plugin.json (description)", text: codexManifest.description },
-    { label: "index.html", text: readFile("index.html") },
-  ];
+
+  // The WHOLE README, not one section: the most plausible regression is a
+  // summary claim re-added to the codex bullet list near the top of the file,
+  // which a single-section reader never sees.
+  surfaces.push({ label: "README.md (whole file)", text: readFile("README.md"), mustQuantify: true });
+
+  surfaces.push({
+    label: ".claude-plugin/marketplace.json (metadata description)",
+    text: marketplace.metadata.description,
+    mustQuantify: false,
+  });
+  for (const entry of marketplace.plugins) {
+    surfaces.push({
+      label: `.claude-plugin/marketplace.json (${entry.name} entry description)`,
+      text: entry.description,
+      mustQuantify: entry.name === "codex",
+    });
+  }
+
+  const pluginsDir = path.join(REPO_ROOT, "plugins");
+  for (const plugin of fs.readdirSync(pluginsDir, { withFileTypes: true })) {
+    if (!plugin.isDirectory()) continue;
+    const manifestPath = path.join(pluginsDir, plugin.name, ".claude-plugin", "plugin.json");
+    if (!fs.existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    surfaces.push({
+      label: `plugins/${plugin.name}/.claude-plugin/plugin.json (description)`,
+      text: manifest.description,
+      mustQuantify: plugin.name === "codex",
+    });
+  }
+
+  // Same glob the stale-string corpus uses -- one definition of "the website".
+  for (const name of rootHtmlPages()) {
+    surfaces.push({ label: name, text: readFile(name), mustQuantify: false });
+  }
+
+  // Shipped CODEX skill bodies document the codex bridge to users too --
+  // round-2 review proved reason/SKILL.md was an uncovered surface.
+  //
+  // Scoped to codex skills deliberately: this guard's subject is the CODEX
+  // bridge's spec coverage, and only a codex skill can make a claim about it.
+  // Including agy/contexthub skill bodies produced false positives on correct
+  // prose about entirely different subsystems (converge/SKILL.md's "neither
+  // /contexthub:supervise nor any Superpowers skill auto-launches Converge"
+  // is a true statement about Converge, not an over-claim about codex specs).
+  // Those files remain fully covered by the stale-string corpus scan above;
+  // only this narrow spec-coverage question excludes them, because they
+  // cannot answer it.
+  for (const f of walkFiles(CODEX_SKILLS_DIR).filter((f) => path.basename(f) === "SKILL.md")) {
+    surfaces.push({
+      label: path.relative(REPO_ROOT, f),
+      text: fs.readFileSync(f, "utf8"),
+      mustQuantify: false,
+    });
+  }
+
+  return surfaces;
 }
 
 test("the spec-builder discriminator genuinely separates codex skills (non-vacuous)", () => {
@@ -514,36 +687,126 @@ test("the spec-builder discriminator genuinely separates codex skills (non-vacuo
   );
 });
 
-test("no public surface claims the 5-section spec covers EVERY delegation/call while some codex skills skip it", () => {
-  const { skipsSpec } = codexSkillsBySpecUsage();
-  const quantifier = /\b(?:every|each|all)\s+([a-z-]+\s+)?(?:delegation|call)s?\b/gi;
-  let quantifiedClaimsSeen = 0;
+/**
+ * Counts recognized universality claims in a surface's text and asserts each
+ * one is qualified. Returns the number of claims SEEN (qualified or not), so
+ * the caller can assert per-surface coverage.
+ */
+function auditSpecCoverageClaims(label, text, onViolation) {
+  const sentences = normalizeMarkdown(stripFencedCode(text)).split(/(?<=[.!?])\s+/);
+  let seen = 0;
 
-  for (const { label, text } of publicSpecClaimSurfaces()) {
-    assert.ok(text, `${label}: expected this surface to be readable`);
-    // Only sentences that are actually about the spec/handoff can make a
-    // spec-coverage claim -- this keeps CSS class names like
-    // ".handoff__layout" and unrelated prose out of scope.
-    for (const sentence of text.split(/(?<=[.!?])\s+|\n\n+/)) {
-      if (!/\b(?:spec|handoff)\b/i.test(sentence)) continue;
-      for (const match of sentence.matchAll(quantifier)) {
-        quantifiedClaimsSeen++;
-        const qualifier = (match[1] || "").trim().toLowerCase();
-        assert.ok(
-          SPEC_COVERAGE_QUALIFIERS.has(qualifier),
-          `${label} claims the 5-section spec is written for "${match[0].trim()}", but these codex skills ` +
-            `skip it entirely: ${skipsSpec.join(", ")}. Qualify the claim (e.g. "every structured delegation") ` +
-            `so the page does not contradict the skills it documents.\n  Sentence: ${sentence.trim().slice(0, 200)}`
-        );
+  for (let i = 0; i < sentences.length; i++) {
+    // Scope window = this sentence PLUS its predecessor. A claim split across
+    // two sentences ("A 5-section handoff spec is produced. It is written on
+    // every call.") previously dodged the scope check entirely, because the
+    // sentence carrying the universal contained no spec/handoff token.
+    const scope = `${i > 0 ? sentences[i - 1] : ""} ${sentences[i]}`;
+    if (!/\b(?:spec|handoff)\b/i.test(scope)) continue;
+
+    const sentence = sentences[i];
+    for (const pattern of UNIVERSAL_CLAIM_PATTERNS) {
+      // Fresh regex per use: the module-level patterns carry /g, and sharing
+      // lastIndex across surfaces would silently skip matches.
+      for (const match of sentence.matchAll(new RegExp(pattern.source, pattern.flags))) {
+        if (isFilenameReference(sentence, match)) continue;
+        seen++;
+        if (!isQualifiedClaim(sentence, match)) {
+          onViolation(match, sentence);
+        }
       }
     }
   }
+  return seen;
+}
 
+test("no public surface claims the 5-section spec covers EVERY delegation while some codex skills skip it", () => {
+  const { skipsSpec } = codexSkillsBySpecUsage();
   assert.ok(
-    quantifiedClaimsSeen > 0,
-    "expected at least one quantified spec-coverage claim across the public surfaces; found none, which " +
-      "would make this guard vacuous (the claim was probably reworded in a way this test no longer sees)"
+    skipsSpec.length > 0,
+    "premise: some codex skills must skip the spec, otherwise a universal claim would be TRUE and this " +
+      "guard would be asserting the wrong thing entirely"
   );
+
+  const coverage = [];
+
+  for (const { label, text, mustQuantify } of publicSpecClaimSurfaces()) {
+    assert.ok(typeof text === "string" && text.length > 0, `${label}: expected readable, non-empty text`);
+    const seen = auditSpecCoverageClaims(label, text, (match, sentence) => {
+      assert.fail(
+        `${label} claims the 5-section spec is written for "${match[0].trim()}", but these codex skills ` +
+          `skip it entirely: ${skipsSpec.join(", ")}. Qualify the claim (e.g. "every structured delegation") ` +
+          `so the surface does not contradict the skills it documents.\n  Sentence: ${sentence.trim().slice(0, 220)}`
+      );
+    });
+    coverage.push({ label, seen, mustQuantify });
+  }
+
+  // PER-SURFACE coverage. A surface that is supposed to carry the claim must
+  // still visibly carry a *detectable* one. This is the assertion that would
+  // have caught the round-1 regression, where markdown emphasis made the
+  // README invisible while two manifests kept the global counter positive.
+  const dark = coverage.filter((c) => c.mustQuantify && c.seen === 0).map((c) => c.label);
+  assert.deepEqual(
+    dark,
+    [],
+    `these surfaces are expected to carry a spec-coverage claim but the detector found ZERO on them: ` +
+      `${dark.join(", ")}.\nEither the claim was reworded/reformatted into a shape the matcher no longer ` +
+      `recognizes (fix the matcher -- the guard is inert on that surface until you do), or the surface ` +
+      `genuinely stopped claiming spec coverage (then set mustQuantify:false deliberately).\n` +
+      `Per-surface counts: ${coverage.map((c) => `${c.label}=${c.seen}`).join(", ")}`
+  );
+});
+
+test("the spec-coverage matcher sees through markdown emphasis, code spans, and line wrapping", () => {
+  // Round-1 regression, pinned: each of these is a FALSE universal that the
+  // pre-normalization matcher could not see, so the guard silently passed.
+  const disguised = [
+    "The bridge writes a handoff spec for every **single** delegation.",
+    "The bridge writes a handoff spec for every _single_ delegation.",
+    "The bridge writes a handoff spec for every `single` delegation.",
+    "The bridge writes a handoff spec for every\nsingle\ndelegation.",
+    "The bridge writes a **handoff spec** on **any call**.",
+    "The bridge **always writes** a handoff spec.",
+  ];
+  for (const text of disguised) {
+    let violations = 0;
+    auditSpecCoverageClaims("fixture", text, () => violations++);
+    assert.ok(
+      violations > 0,
+      `formatting must not hide a false universal, but this passed undetected: ${JSON.stringify(text)}`
+    );
+  }
+
+  // And the legitimate qualified form must still pass, including when the
+  // qualifier itself is emphasized and line-wrapped (this is the live README
+  // shape).
+  const legitimate = [
+    "The bridge writes a handoff spec for every **structured**\ndelegation.",
+    "The bridge **always writes** a **structured** handoff spec.",
+  ];
+  for (const text of legitimate) {
+    let violations = 0;
+    auditSpecCoverageClaims("fixture", text, () => violations++);
+    assert.equal(violations, 0, `qualified claim must not be flagged: ${JSON.stringify(text)}`);
+  }
+});
+
+test("the spec-coverage scope window spans a sentence and its predecessor", () => {
+  // Round-2 finding: the universal lived in a sentence with no spec/handoff
+  // token, so the scope check skipped it even though the preceding sentence
+  // established the subject.
+  const split = "A 5-section handoff spec is produced. It is written on every call.";
+  let violations = 0;
+  auditSpecCoverageClaims("fixture", split, () => violations++);
+  assert.ok(violations > 0, `a claim split across two sentences must still be in scope: ${JSON.stringify(split)}`);
+
+  // Scope is still bounded -- an unrelated universal far from any spec
+  // sentence must not be dragged in.
+  const unrelated = "The handoff spec lives on disk. Unrelated prose here. We run every test on each commit.";
+  let unrelatedViolations = 0;
+  auditSpecCoverageClaims("fixture", unrelated, () => unrelatedViolations++);
+  assert.equal(unrelatedViolations, 0, "scope must not extend beyond the immediately preceding sentence");
 });
 
 test("the codex-bridge README section discloses that constraint/output-format defaults are packaged until /codex:setup is run", () => {
