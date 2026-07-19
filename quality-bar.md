@@ -11,7 +11,7 @@ installed skill's frontmatter lives in Claude's preamble on every turn:
 
 | Element | Budget |
 |---|---|
-| Frontmatter `description` | 30–120 words. Aim tight: pushy beats verbose. The minimum is "enough triggers + a closing claim"; the maximum is the hard ceiling. |
+| Frontmatter `description` | Manual-only (`disable-model-invocation: true`): 8–60 words. Model-invocable: 15–60 words. Same 60-word ceiling either way — that protects Claude's always-on context regardless of invocation mode. |
 | `SKILL.md` body | <200 lines (hard ceiling 250) |
 | `references/*.md` | unlimited — loaded on demand |
 | `scripts/*` | unlimited — never in context |
@@ -19,25 +19,31 @@ installed skill's frontmatter lives in Claude's preamble on every turn:
 Bodies that exceed 200 lines must split into `references/`. Skills that
 can't compress into the description budget don't ship.
 
-## 2. Pushy description template
+## 2. Pushy description template & native invocation metadata
 
 Every description follows this shape:
 
 > {What it does in one sentence}. Use whenever the user mentions
 > {primary triggers}, asks for {related actions}, or needs {underlying
 > capability} — even if they don't explicitly say "{plugin name}" or
-> "{specialist name}". {Default-for-category claim, OR slash-command-only
-> note if explicit-only}.
+> "{specialist name}".
 
-The closing line is the pushiness lever:
+**Manual-only vs. model-invocable is a native frontmatter fact, not a
+prose convention.** Set `disable-model-invocation: true` to make a
+skill explicit-invocation only: this removes the skill's name and
+description from Claude's always-on context entirely and disables
+automatic invocation — the skill runs only when the user explicitly
+invokes it (`/{plugin}:{skill}`), matching current Claude Code
+platform behavior for that field. A skill with the field absent (or
+`false`) is model-invocable and must include trigger language ("Use
+whenever …", "Reach for …") so Claude knows when to fire it.
 
-- **Default-for-category claim** (auto-triggers welcome): *"Default
-  {category} path in this marketplace."*
-- **Slash-command-only note** (explicit-only): *"Slash-command only:
-  invoke as /{plugin}:{skill} <args>."*
-
-Pick one. Never both. Skills that auto-trigger must own a category;
-slash-only skills must say so.
+A description may still add "Slash-command only: invoke as
+/{plugin}:{skill} <args>." for human readability, but that phrase is
+never authoritative by itself — the linter rejects a "Slash-command
+only" claim made without `disable-model-invocation: true` also set in
+frontmatter. The frontmatter field is the only thing that actually
+turns off auto-invocation; prose alone cannot.
 
 ## 3. Naming convention
 
@@ -84,10 +90,12 @@ must be auditable after the fact.
 
 ## 7. Evals
 
-Every auto-triggering skill ships with `evals/evals.json` containing
-2–3 realistic prompts and programmatically verifiable assertions per
-Anthropic's spec. Slash-command-only skills are exempt — they can't be
-mis-triggered.
+Every model-invocable skill (`disable-model-invocation` absent or
+`false`) ships with `evals/evals.json` containing 2–3 realistic
+prompts and programmatically verifiable assertions per Anthropic's
+spec. Manual-only skills (`disable-model-invocation: true`) are
+exempt — they can't be mis-triggered, since Claude never auto-invokes
+them.
 
 ## 8. Critical evaluation
 

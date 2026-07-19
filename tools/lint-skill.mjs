@@ -10,18 +10,25 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const RULES = {
-  DESC_MIN_WORDS: 30,
-  DESC_MAX_WORDS: 120,
+  // Manual-only skills (`disable-model-invocation: true`) are never
+  // auto-triggered, so their description can be terser.
+  DESC_MIN_WORDS_MANUAL: 8,
+  // Model-invocable skills need enough trigger language for Claude to
+  // route to them correctly.
+  DESC_MIN_WORDS_AUTO: 15,
+  // Same ceiling for both — this is what protects Claude's always-on
+  // context budget regardless of invocation mode.
+  DESC_MAX_WORDS: 60,
   BODY_WARN_LINES: 200,
   BODY_MAX_LINES: 250,
 };
 
-function parseFrontmatter(content) {
+export function parseFrontmatter(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) return null;
   const fmText = match[1];
@@ -39,18 +46,38 @@ function parseFrontmatter(content) {
   return { frontmatter: fm, bodyStart: match[0].length };
 }
 
-function countWords(s) {
+export function countWords(s) {
   return (s.match(/\S+/g) || []).length;
 }
 
-function lintOne(filePath) {
+// The native `disable-model-invocation` frontmatter boolean is the sole
+// authority on whether a skill is manual-only — not any phrase in the
+// prose description. It is parsed strictly: only the literal unquoted
+// tokens `true` or `false` are accepted. Any other spelling ("True",
+// "yes", "1", a quoted `"true"`, ...) is a lint ERROR, not a silent
+// fallback. This matters because the evals exemption below is keyed on
+// this same strict result — a lenient parser would let a typo silently
+// claim the exemption. A missing field is not a typo; it legitimately
+// defaults to model-invocable, the platform default.
+export function classifyInvocation(frontmatter, findings) {
+  const raw = frontmatter["disable-model-invocation"];
+  if (raw === undefined) return false;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  findings.errors.push(
+    `disable-model-invocation must be the literal boolean \`true\` or \`false\` (found: ${JSON.stringify(raw)}) — quoted strings, "yes", "1", and other truthy spellings are rejected`
+  );
+  return false;
+}
+
+export function lintOne(filePath) {
   const findings = { errors: [], warnings: [] };
   const content = fs.readFileSync(filePath, "utf8");
   const parsed = parseFrontmatter(content);
 
   if (!parsed) {
     findings.errors.push("missing YAML frontmatter");
-    return { findings, name: null };
+    return { findings, name: null, manualOnly: false };
   }
 
   const { frontmatter, bodyStart } = parsed;
@@ -63,42 +90,49 @@ function lintOne(filePath) {
     findings.errors.push(`name "${name}" must be lowercase letters/digits/hyphens, starting with a letter`);
   }
 
+  // Manual-only vs model-invocable is a native-frontmatter fact. Setting
+  // `disable-model-invocation: true` removes the skill's name/description
+  // from Claude's always-on context and disables automatic invocation
+  // entirely — the skill runs only when the user explicitly invokes it,
+  // matching current Claude Code platform behavior.
+  const manualOnly = classifyInvocation(frontmatter, findings);
+
   // description
   const desc = frontmatter.description;
-  let isSlashOnly = false;
   if (!desc) {
     findings.errors.push("missing `description` in frontmatter");
   } else {
     const words = countWords(desc);
-    if (words < RULES.DESC_MIN_WORDS) {
-      findings.errors.push(`description is ${words} words; min ${RULES.DESC_MIN_WORDS}`);
+    const minWords = manualOnly ? RULES.DESC_MIN_WORDS_MANUAL : RULES.DESC_MIN_WORDS_AUTO;
+    if (words < minWords) {
+      findings.errors.push(
+        `description is ${words} words; min ${minWords} for a ${manualOnly ? "manual-only" : "model-invocable"} skill`
+      );
     }
     if (words > RULES.DESC_MAX_WORDS) {
-      findings.errors.push(`description is ${words} words; max ${RULES.DESC_MAX_WORDS}`);
+      findings.errors.push(`description is ${words} words; max ${RULES.DESC_MAX_WORDS} — protects always-on context`);
     }
 
-    const hasDefaultClaim = /default[^.]*path in this marketplace/i.test(desc);
-    isSlashOnly = /slash-?command[\s-]only/i.test(desc);
-
-    if (!hasDefaultClaim && !isSlashOnly) {
+    // A prose "slash-command only" claim is not authoritative by itself.
+    // If a description says it but the frontmatter field isn't strictly
+    // `disable-model-invocation: true`, the skill is still
+    // model-invocable and the claim is misleading — reject it rather
+    // than trusting the phrasing.
+    const claimsSlashOnly = /slash-?command[\s-]only/i.test(desc);
+    if (claimsSlashOnly && !manualOnly) {
       findings.errors.push(
-        'description must end with a closing claim: either "Default ... path in this marketplace." (auto-trigger) or "Slash-command only" (explicit-only)'
+        'description claims "Slash-command only" in prose, but `disable-model-invocation: true` is not set in frontmatter — the frontmatter field is authoritative, prose alone does not make a skill manual-only'
       );
     }
-    if (hasDefaultClaim && isSlashOnly) {
-      findings.errors.push(
-        'description claims both "Default ... path" AND "Slash-command only" — pick one'
-      );
-    }
 
-    // Auto-triggering skills must include trigger language so Claude
-    // knows when to fire them. Slash-only skills are explicit-invocation
-    // and don't need it.
-    if (!isSlashOnly) {
+    // Auto-triggering (model-invocable) skills must include trigger
+    // language so Claude knows when to fire them. Manual-only skills are
+    // explicit-invocation and don't need it.
+    if (!manualOnly) {
       const hasTrigger = /\b(use whenever|use when|use for|reach for|stage)\b/i.test(desc);
       if (!hasTrigger) {
         findings.warnings.push(
-          'auto-trigger description lacks an explicit trigger phrase ("Use whenever ...", "Reach for ...") — pushy template expects one'
+          'model-invocable description lacks an explicit trigger phrase ("Use whenever ...", "Reach for ...") — pushy template expects one'
         );
       }
     }
@@ -113,12 +147,15 @@ function lintOne(filePath) {
     findings.warnings.push(`body is ${bodyLines} lines; soft limit ${RULES.BODY_WARN_LINES}`);
   }
 
-  // evals/evals.json — required for auto-triggering skills
-  if (!isSlashOnly) {
+  // evals/evals.json — required for model-invocable skills only.
+  // Manual-only skills are exempt because they can't be mis-triggered —
+  // and that exemption is safe only because `manualOnly` above came from
+  // a strict boolean parse, not an assumption or a lenient coercion.
+  if (!manualOnly) {
     const evalsPath = path.join(path.dirname(filePath), "evals", "evals.json");
     if (!fs.existsSync(evalsPath)) {
       findings.errors.push(
-        `auto-triggering skills must ship evals/evals.json with 2+ realistic prompts (missing: ${path.relative(REPO_ROOT, evalsPath)})`
+        `model-invocable skills must ship evals/evals.json with 2+ realistic prompts (missing: ${path.relative(REPO_ROOT, evalsPath)})`
       );
     } else {
       try {
@@ -138,10 +175,10 @@ function lintOne(filePath) {
     }
   }
 
-  return { findings, name, isSlashOnly };
+  return { findings, name, manualOnly };
 }
 
-function findSkills() {
+export function findSkills() {
   const skills = [];
   const pluginsDir = path.join(REPO_ROOT, "plugins");
   if (!fs.existsSync(pluginsDir)) return skills;
@@ -171,13 +208,10 @@ function main() {
 
   for (const file of files) {
     const rel = path.relative(REPO_ROOT, file);
-    const { findings, name, isSlashOnly } = lintOne(file);
+    const { findings, name } = lintOne(file);
 
-    // Name uniqueness within a plugin is a platform requirement.
-    // Cross-plugin sharing is allowed by design — lifecycle skills
-    // (`contexthub:review`, `contexthub:spec`) intentionally reuse phase names
-    // that primitives also expose (`codex:review`). Claude routes by
-    // the full plugin:skill identity and disambiguates by description.
+    // Skill names must be unique within a plugin — Claude Code routes by
+    // the full plugin:skill identity. Cross-plugin name reuse is fine.
     if (name) {
       const plugin = path.relative(REPO_ROOT, file).split(path.sep)[1];
       const key = `${plugin}:${name}`;
@@ -207,4 +241,6 @@ function main() {
   process.exit(totalErrors > 0 ? 1 : 0);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
