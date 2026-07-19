@@ -518,22 +518,37 @@ const UNIVERSAL_CLAIM_PATTERNS = Object.freeze([
 ]);
 
 /**
- * Removes fenced code blocks. A fenced block is a listing -- a directory
- * tree, a shell transcript, a config sample -- not prose addressed to the
- * reader, so it cannot make a product *claim* in the sense this guard checks.
+ * Makes every line inside a fenced block its own sentence unit, by giving
+ * unterminated fenced lines a terminator before whitespace is collapsed.
  *
- * This is a PRECISION fix to the analysis scope, not an exemption for any
- * particular string: without it, the README's `## Layout` tree tripped on the
- * comment `quality-bar.md  # the gates every skill must clear`, which says
- * nothing about spec coverage. Dropping "skill" from the noun list was the
- * alternative and was rejected -- round-2 review explicitly requires
- * "Every skill writes a spec" to be caught, and it still is, in prose.
+ * This REPLACES a round-2 approach that stripped fenced blocks entirely.
+ * Stripping was too blunt: round-3 review showed this README's fences do
+ * carry product prose (`README.md:35` documents `/codex:setup` inside a
+ * fence), so a claim written in a fence -- as a comment or as a full
+ * sentence -- escaped the guard completely.
  *
- * Verified not to re-open any known escape: every probe in this file and
- * every phrasing round-2 review raised is prose, none fenced.
+ * Line-delimiting is strictly stronger than either stripping or narrowing:
+ * fenced content is now fully SCANNED, so there is no fence exemption left to
+ * escape through. It also fixes the original false positive at its real root.
+ * That root was never "fences are code" -- it was that an entire fenced block
+ * collapsed into ONE pseudo-sentence, so the `## Layout` tree's row
+ * `quality-bar.md  # the gates every skill must clear` borrowed spec-scope
+ * from `spec-builder.mjs` thirty lines above it. Per-line units end that
+ * cross-row bleed while leaving a fenced sentence fully in scope.
  */
-function stripFencedCode(text) {
-  return text.replace(/^```[\s\S]*?^```/gm, "\n");
+function delimitFencedLines(text) {
+  let inFence = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (!inFence) return line;
+      return /[.!?]$/.test(line.trimEnd()) ? line : `${line}.`;
+    })
+    .join("\n");
 }
 
 /**
@@ -566,9 +581,15 @@ function isQualifiedClaim(sentence, match) {
  * excused, and "every skill writes a spec" -- which round-2 review requires
  * to be caught -- is untouched because "skill" there is not followed by an
  * extension.
+ *
+ * Deliberately case-SENSITIVE. With /i, a sentence boundary missing its space
+ * ("...on every call.Codex reads it from disk") read as the extension
+ * ".Codex" and the claim escaped entirely. Every real extension in this repo
+ * is lowercase, so dropping /i costs nothing and shrinks the hole to a
+ * lowercase-only typo.
  */
 function isFilenameReference(sentence, match) {
-  return /^\.[a-z0-9]+\b/i.test(sentence.slice(match.index + match[0].length));
+  return /^\.[a-z0-9]+\b/.test(sentence.slice(match.index + match[0].length));
 }
 
 function codexSkillsBySpecUsage() {
@@ -649,19 +670,31 @@ function publicSpecClaimSurfaces() {
     surfaces.push({ label: name, text: readFile(name), mustQuantify: false });
   }
 
-  // Shipped CODEX skill bodies document the codex bridge to users too --
-  // round-2 review proved reason/SKILL.md was an uncovered surface.
+  // Skill bodies that can speak to the codex bridge's spec behaviour.
   //
-  // Scoped to codex skills deliberately: this guard's subject is the CODEX
-  // bridge's spec coverage, and only a codex skill can make a claim about it.
-  // Including agy/contexthub skill bodies produced false positives on correct
-  // prose about entirely different subsystems (converge/SKILL.md's "neither
-  // /contexthub:supervise nor any Superpowers skill auto-launches Converge"
-  // is a true statement about Converge, not an over-claim about codex specs).
-  // Those files remain fully covered by the stale-string corpus scan above;
-  // only this narrow spec-coverage question excludes them, because they
-  // cannot answer it.
-  for (const f of walkFiles(CODEX_SKILLS_DIR).filter((f) => path.basename(f) === "SKILL.md")) {
+  // Every codex skill (round-2 review proved reason/SKILL.md was uncovered),
+  // PLUS contexthub's supervise: round-3 review corrected the earlier
+  // reasoning here. "Only a codex skill can claim codex spec coverage" does
+  // not hold strictly -- `supervise` drives Codex directly, and README.md's
+  // codex-bridge section explicitly contrasts it ("drives Codex through a
+  // compact machine task graph instead of a handoff spec"). A future edit
+  // asserting supervise writes a handoff spec on every call would be false,
+  // so it belongs in scope. It yields zero matches today, so including it
+  // costs nothing.
+  //
+  // converge and the agy skills stay excluded, and that exclusion is still
+  // correct: neither drives Codex, so neither can speak to this claim.
+  // Including them produced false positives on true prose about other
+  // subsystems (converge/SKILL.md's "neither /contexthub:supervise nor any
+  // Superpowers skill auto-launches Converge"). They remain fully covered by
+  // the stale-string corpus scan above; only this narrow spec-coverage
+  // question excludes them, because they cannot answer it.
+  const SPEC_CLAIM_SKILL_FILES = [
+    ...walkFiles(CODEX_SKILLS_DIR).filter((f) => path.basename(f) === "SKILL.md"),
+    path.join(REPO_ROOT, "plugins", "contexthub", "skills", "supervise", "SKILL.md"),
+  ];
+  for (const f of SPEC_CLAIM_SKILL_FILES) {
+    assert.ok(fs.existsSync(f), `expected spec-claim surface to exist: ${path.relative(REPO_ROOT, f)}`);
     surfaces.push({
       label: path.relative(REPO_ROOT, f),
       text: fs.readFileSync(f, "utf8"),
@@ -693,7 +726,7 @@ test("the spec-builder discriminator genuinely separates codex skills (non-vacuo
  * the caller can assert per-surface coverage.
  */
 function auditSpecCoverageClaims(label, text, onViolation) {
-  const sentences = normalizeMarkdown(stripFencedCode(text)).split(/(?<=[.!?])\s+/);
+  const sentences = normalizeMarkdown(delimitFencedLines(text)).split(/(?<=[.!?])\s+/);
   let seen = 0;
 
   for (let i = 0; i < sentences.length; i++) {
@@ -790,6 +823,84 @@ test("the spec-coverage matcher sees through markdown emphasis, code spans, and 
     auditSpecCoverageClaims("fixture", text, () => violations++);
     assert.equal(violations, 0, `qualified claim must not be flagged: ${JSON.stringify(text)}`);
   }
+});
+
+test("a claim written INSIDE a fenced block is still scanned (fences are not exempt)", () => {
+  // Round-3 finding: stripping fenced blocks exempted them wholesale, but
+  // this README's fences carry product prose, so a claim written in a fence
+  // escaped entirely. Fenced content is now scanned line by line.
+  const fencedClaims = [
+    "Intro prose.\n\n```\n# the handoff spec is written on every call\n```\n",
+    "Intro prose.\n\n```\nThe handoff spec is written on every call.\n```\n",
+    "Intro.\n\n```bash\n# handoff spec written for any invocation\n```\n",
+  ];
+  for (const text of fencedClaims) {
+    let violations = 0;
+    auditSpecCoverageClaims("fixture", text, () => violations++);
+    assert.ok(violations > 0, `a claim inside a fence must still be caught: ${JSON.stringify(text)}`);
+  }
+
+  // ...while a LISTING row must not borrow spec-scope from a distant row.
+  // This is the exact `## Layout` shape that a naive fence-as-prose reading
+  // tripped on: the spec mention is many rows above the "every skill" row.
+  const listing = [
+    "```",
+    "plugins/",
+    "└── codex/",
+    "    └── scripts/",
+    "        └── spec-builder.mjs     # writes the 5-section spec",
+    "tools/",
+    "└── eval-check.mjs               # evals.json structural validator",
+    "quality-bar.md                   # the gates every skill must clear",
+    "```",
+  ].join("\n");
+  let listingViolations = 0;
+  auditSpecCoverageClaims("fixture", listing, () => listingViolations++);
+  assert.equal(
+    listingViolations,
+    0,
+    "a listing row must not borrow sentence-scope from a spec mention rows above it"
+  );
+});
+
+test("isFilenameReference is case-sensitive, so a missing space after a period cannot disguise a claim", () => {
+  // Round-3 finding: with /i, ".Codex" read as a file extension and the claim
+  // escaped. Both spacings must now be caught.
+  for (const text of [
+    "The handoff spec is written on every call.Codex reads it from disk.",
+    "The handoff spec is written on every call. Codex reads it from disk.",
+  ]) {
+    let violations = 0;
+    auditSpecCoverageClaims("fixture", text, () => violations++);
+    assert.ok(violations > 0, `sentence spacing must not change the verdict: ${JSON.stringify(text)}`);
+  }
+
+  // Genuine lowercase filename references must still be skipped.
+  for (const text of [
+    "The suite gates every SKILL.md against the handoff spec rules.",
+    "It validates every evals.json next to the handoff spec.",
+  ]) {
+    let violations = 0;
+    auditSpecCoverageClaims("fixture", text, () => violations++);
+    assert.equal(violations, 0, `genuine filename reference must be skipped: ${JSON.stringify(text)}`);
+  }
+});
+
+test("contexthub supervise is in scope for the spec-coverage claim, and is clean today", () => {
+  // supervise drives Codex, so it CAN make a spec-coverage claim -- the
+  // README explicitly contrasts it against the handoff spec. Round-3 review
+  // corrected an earlier over-narrow scoping that excluded it.
+  const labels = publicSpecClaimSurfaces().map((s) => s.label);
+  assert.ok(
+    labels.includes(path.join("plugins", "contexthub", "skills", "supervise", "SKILL.md")),
+    `supervise/SKILL.md must be a spec-claim surface; surfaces were: ${labels.join(", ")}`
+  );
+
+  const text = readFile("plugins/contexthub/skills/supervise/SKILL.md");
+  let violations = 0;
+  const seen = auditSpecCoverageClaims("supervise", text, () => violations++);
+  assert.equal(violations, 0, "supervise/SKILL.md must not over-claim spec coverage");
+  assert.equal(seen, 0, "adding supervise/SKILL.md must introduce no new matches (it costs nothing today)");
 });
 
 test("the spec-coverage scope window spans a sentence and its predecessor", () => {
