@@ -78,7 +78,7 @@ carries the correct fallback — preflight disables resume and forces `session_p
 - Run at most three Codex workers concurrently and at most two implementation waves.
 - Never install CLIs, plugins, packages, extensions, or dependencies during skill execution.
 - Introduce no npm dependency and no package manager step. Use Node 20+ built-ins and existing `git`, `codex`, and `agy` executables only.
-- Keep every explicit workflow manual-only with `disable-model-invocation: true`; this gives it zero Claude context cost until the user invokes it.
+- Keep every explicit workflow manual-only with `disable-model-invocation: true`. This defers the skill's large body cost (350 tok–2k per skill) until the user invokes it, and prevents unwanted automatic invocation. **Corrected 2026-07-20:** it does *not* eliminate the always-on cost. Task 13 Step 5 measured every manual-only skill at ~60–100 tok always-on, statistically indistinguishable from the two model-invocable ones. The original claim of "zero Claude context cost" was an unverified assumption, measured only after the surface had been built on it; see the measured table in Step 5.
 - Keep `supervise/SKILL.md` under 100 body lines. Put deterministic rules in scripts and detailed recovery guidance in one directly-linked reference file.
 - Do not push, merge, open a PR, deploy, delete uncertain worktrees, or perform irreversible actions without fresh user consent.
 - Preserve historical v5 documents as history; add a superseded notice instead of rewriting their recorded design.
@@ -1886,7 +1886,7 @@ git commit -m "feat(contexthub): add token-efficient supervision"
 **Interfaces:**
 
 - Consumes: native skill frontmatter boolean `disable-model-invocation`
-- Produces: zero always-on context for eight manual skills; concise trigger descriptions for two automatic skills
+- Produces: native manual-only metadata on eight skills (deferring their body cost and preventing automatic invocation, though **not** zeroing their ~60–100 tok always-on description cost — see the Global Constraints correction); concise trigger descriptions for two automatic skills
 
 - [ ] **Step 1: Write failing native-invocation lint tests**
 
@@ -1905,7 +1905,7 @@ Replace the prose-only “Slash-command only” classifier with frontmatter beha
 
 Parse the frontmatter value strictly as `true` or `false`. Remove the brittle closing-claim requirement and stale lifecycle duplicate-name commentary. Keep body limits and eval structure checks.
 
-Document that manual-only metadata removes both name/description context and automatic invocation until the user invokes the skill, matching current Claude Code behavior.
+Document what manual-only metadata actually does: it prevents automatic invocation and defers the skill body's cost until invocation. **Corrected 2026-07-20:** do *not* document it as removing name/description context — Task 13 Step 5 measured that it does not. State the deferral and the invocation control, and leave the always-on description cost out of the claim.
 
 - [ ] **Step 3: Apply native manual-only metadata consistently**
 
@@ -2200,7 +2200,24 @@ claude --plugin-dir plugins/contexthub plugin details contexthub
 claude --plugin-dir <resolved-claude-superpowers-plugin-dir> plugin details superpowers
 ```
 
-Resolve the dependency's exact source path/version from `claude plugin list --json`; do not inspect a stale cache guess. Capture all four outputs as release evidence. Assert each Carefully Crafted component and invocation mode, verify the eight manual-only skill descriptions contribute zero always-on context, and verify only `codex:imagegen` and `codex:reason` are model-invocable. Report three numbers separately: Carefully Crafted's projected always-on delta, required upstream Superpowers overhead, and total installed stack overhead. Record the dependency version/snapshot and measured values in release notes or the PR description, not in a skill body; do not modify upstream Superpowers to optimize this plugin.
+Resolve the dependency's exact source path/version from `claude plugin list --json`; do not inspect a stale cache guess. Capture all four outputs as release evidence. Assert each Carefully Crafted component and invocation mode, **measure** the eight manual-only skill descriptions' always-on contribution, and verify only `codex:imagegen` and `codex:reason` are model-invocable.
+
+**Measured 2026-07-20** (`claude --plugin-dir <dir> plugin details <name>`, Claude Code 2.1.199, Superpowers v6.1.1):
+
+| skill | always-on | on-invoke | mode |
+|---|---:|---:|---|
+| `codex:resume` | ~60 | ~350 | manual-only |
+| `codex:exec` | ~70 | ~370 | manual-only |
+| `codex:review` | ~70 | ~1.5k | manual-only |
+| `codex:setup` | ~80 | ~530 | manual-only |
+| `contexthub:supervise` | ~80 | ~1.1k | manual-only |
+| `contexthub:converge` | ~100 | ~2k | manual-only |
+| `codex:reason` | ~80 | ~970 | model-invocable |
+| `codex:imagegen` | ~90 | ~1.1k | model-invocable |
+
+Totals: Carefully Crafted **~764 tok** always-on (codex 445 + agy 142 + contexthub 177); required upstream Superpowers **~608 tok**; total installed stack **~1372 tok**.
+
+**This refutes the original "zero always-on context" assumption.** Manual-only skills carry the same order of always-on cost as model-invocable ones; the flag's real benefits are deferring the 350 tok–2k body until invocation and preventing unwanted automatic firing. The ten-skill surface remains justified on those grounds, not on a zero-cost claim. Record the measured values as release evidence rather than restating the assumption. Report three numbers separately: Carefully Crafted's projected always-on delta, required upstream Superpowers overhead, and total installed stack overhead. Record the dependency version/snapshot and measured values in release notes or the PR description, not in a skill body; do not modify upstream Superpowers to optimize this plugin.
 
 - [ ] **Step 6: Run a clean-install dependency smoke test with user authorization**
 
