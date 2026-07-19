@@ -53,6 +53,38 @@ const RESUME_UUID = "0199a213-81c0-7800-8aa1-bbab2a035a53";
 const OTHER_UUID = "019f7734-1c0d-7aa2-9f31-0c5e2b7a4d18";
 
 // --------------------------------------------------------------------------
+// TIMING POLICY — read this before adding any test that spawns the fake.
+//
+// Every test here spawns a real Node child process, and under full-suite
+// parallel load a fresh child's cold start has been observed taking >1.3s.
+// Any assertion that depends on a child reaching a checkpoint within a tight
+// wall-clock bound is therefore a latent flake, which is worse than a
+// consistent failure: it trains people to re-run until green, which is
+// exactly how a real regression gets waved through.
+//
+// The rule, which splits cleanly by what the test is actually asserting:
+//
+//   1. Tests asserting a run COMPLETES (success, malformed, missing-output,
+//      identity mismatch, ...) must use GENEROUS_TIMEOUT_MS. There the
+//      timeout is only a backstop against a genuine hang — the fake exits on
+//      its own — so a large bound costs literally zero wall time on the happy
+//      path and simply removes the race.
+//
+//   2. Tests asserting a TIMEOUT fires must use a SMALL bound, because the
+//      bound is the subject. These are inherently immune to slow startup: a
+//      slow child only makes the timeout MORE certain, never less. Their
+//      fakes sleep 60s, so the child can never beat the bound by finishing.
+//
+//   3. The one hybrid — "a thread demonstrably started, THEN the run timed
+//      out" — needs a bound large enough to clear a loaded cold start yet
+//      still finite. That is THREAD_THEN_TIMEOUT_MS below, and it is the only
+//      place in this file that pays real wall time for safety.
+//
+// Do not tune these to the smallest number that passed locally once.
+const GENEROUS_TIMEOUT_MS = 30_000;
+const THREAD_THEN_TIMEOUT_MS = 5_000;
+
+// --------------------------------------------------------------------------
 // Fake Codex executable (Step 1)
 // --------------------------------------------------------------------------
 
@@ -477,7 +509,7 @@ describe("runCodex — pre-spawn effort rejection (fake Codex never invoked)", (
         await assert.rejects(
           () => runCodex({
             cwd: ctx.dir, prompt: "p", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-            logPath: join(ctx.dir, "log.txt"), effort: badEffort, sandbox: "workspace-write", timeoutMs: 5000,
+            logPath: join(ctx.dir, "log.txt"), effort: badEffort, sandbox: "workspace-write", timeoutMs: GENEROUS_TIMEOUT_MS,
             codexBin: ctx.fakeCodex, env: { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile },
           }),
           CodexTransportError,
@@ -494,7 +526,7 @@ describe("runCodex — pre-spawn effort rejection (fake Codex never invoked)", (
     try {
       await assert.rejects(() => runCodex({
         cwd: ctx.dir, prompt: "p", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "read-only", timeoutMs: 5000,
+        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "read-only", timeoutMs: GENEROUS_TIMEOUT_MS,
         codexBin: ctx.fakeCodex, env: { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile },
       }), CodexTransportError);
       assert.equal(existsSync(ctx.recordFile), false);
@@ -508,7 +540,7 @@ describe("runCodex — pre-spawn effort rejection (fake Codex never invoked)", (
     try {
       await assert.rejects(() => runCodex({
         cwd: ctx.dir, prompt: "p", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-        logPath: join(ctx.dir, "log.txt"), effort: "medium", resumeThreadId: RESUME_UUID, timeoutMs: 5000,
+        logPath: join(ctx.dir, "log.txt"), effort: "medium", resumeThreadId: RESUME_UUID, timeoutMs: GENEROUS_TIMEOUT_MS,
         codexBin: ctx.fakeCodex, env: { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile },
       }), CodexTransportError);
       assert.equal(existsSync(ctx.recordFile), false);
@@ -582,7 +614,9 @@ function freshWorkerArgs(ctx, extra = {}) {
     model: "gpt-5.6-sol",
     effort: "high",
     sandbox: "workspace-write",
-    timeoutMs: 5000,
+    // Rule 1: a backstop, not the subject. The fake exits on its own, so this
+    // costs no wall time and removes any race against child cold start.
+    timeoutMs: GENEROUS_TIMEOUT_MS,
     codexBin: ctx.fakeCodex,
     env: { ...process.env, FAKE_CODEX_RECORD: ctx.recordFile },
     ...extra,
@@ -895,7 +929,7 @@ describe("runCodex — resume cwd confinement", () => {
         logPath: join(ctx.dir, "log.txt"),
         effort: "high",
         resumeThreadId: RESUME_UUID,
-        timeoutMs: 5000,
+        timeoutMs: GENEROUS_TIMEOUT_MS,
         codexBin: ctx.fakeCodex,
         env: scriptEnv(ctx, withOutputWrite(ctx, actions, join(ctx.dir, "o.json"))),
       });
@@ -944,15 +978,31 @@ describe("runCodex — timeout: SIGTERM then bounded SIGKILL escalation", () => 
         { type: "sleepMs", ms: 60_000 },
         { type: "exit", code: 0 },
       ];
+      // SIBLING FLAKE, found by auditing for this class rather than waiting
+      // for it to fire. This is a wall-clock UPPER-bound assertion, which is
+      // the reported flake mirrored: there a loaded cold start made the
+      // elapsed time too LONG to observe a checkpoint in time; here it makes
+      // the elapsed time too long to stay under the threshold.
+      //
+      // The signal being discriminated is graceful exit (≈ cold start + 100ms)
+      // versus consuming the whole grace period (≈ grace + 100ms). The old
+      // numbers put the threshold at 5000ms against a 10_000ms grace, leaving
+      // only ~3.7s of headroom above an observed 1284ms cold start — tight
+      // enough to fire under heavier load. Widening the grace to 30s and the
+      // threshold to 15s puts ~14s of margin on BOTH sides of the decision,
+      // so neither a slow start nor a slow teardown can flip it.
+      //
+      // Cost is unchanged on the passing path: a graceful exit never waits
+      // the grace period, which is the whole point of the assertion.
       const start = Date.now();
       const result = await runCodex(freshWorkerArgs(ctx, {
         env: scriptEnv(ctx, actions),
         timeoutMs: 100,
-        killGraceMs: 10_000, // large grace period the graceful exit must not consume
+        killGraceMs: 30_000, // large grace period the graceful exit must not consume
       }));
       const elapsed = Date.now() - start;
       assert.equal(result.failureCategory, "timeout");
-      assert.ok(elapsed < 5000, `expected a fast graceful exit on SIGTERM, took ${elapsed}ms`);
+      assert.ok(elapsed < 15_000, `expected a fast graceful exit on SIGTERM, took ${elapsed}ms`);
     } finally {
       cleanup(ctx.dir);
     }
@@ -1021,7 +1071,7 @@ describe("mutation-safe retry evidence", () => {
       ];
       const result = await runCodex({
         cwd: worktree, prompt: "do it", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "workspace-write", timeoutMs: 5000,
+        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "workspace-write", timeoutMs: GENEROUS_TIMEOUT_MS,
         codexBin: ctx.fakeCodex, env: scriptEnv(ctx, actions),
       });
       assert.equal(result.threadId, null, "no thread ever started");
@@ -1046,7 +1096,7 @@ describe("mutation-safe retry evidence", () => {
       ];
       const result = await runCodex({
         cwd: worktree, prompt: "do it", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
-        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "workspace-write", timeoutMs: 5000,
+        logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "workspace-write", timeoutMs: GENEROUS_TIMEOUT_MS,
         codexBin: ctx.fakeCodex, env: scriptEnv(ctx, actions),
       });
       assert.equal(result.threadId, "mutating-thread");
@@ -1080,12 +1130,22 @@ describe("mutation-safe retry evidence", () => {
       const result = await runCodex({
         cwd: worktree, prompt: "do it", schemaPath: join(ctx.dir, "s.json"), outputPath: join(ctx.dir, "o.json"),
         logPath: join(ctx.dir, "log.txt"), effort: "high", sandbox: "workspace-write",
-        // Generous relative to a fresh Node child-process's own cold-start
-        // time, so the child reliably gets to emit thread.started and enter
-        // its sleep before the timeout fires — the point under test is what
-        // happens to a thread that HAS started, not a race with node's own
-        // startup latency.
-        timeoutMs: 800, killGraceMs: 200,
+        // Timing-policy rule 3 (see the header): this is the file's only
+        // hybrid assertion — the child must demonstrably emit thread.started
+        // AND the run must then time out. The bound therefore has to clear a
+        // loaded cold start while still firing.
+        //
+        // 800ms did not clear it. Under full-suite parallel load a fresh Node
+        // child was observed taking 1284ms just to reach its first write, so
+        // the timeout fired first, runCodex correctly reported threadId: null,
+        // and this assertion blew up — a race in the test's premise, not a
+        // defect in the product. 5000ms gives roughly 4x headroom over that
+        // observed worst case and matches the precedent already set for this
+        // flake class elsewhere in the suite.
+        //
+        // The child sleeps 60s and ignores SIGTERM, so the run still ends
+        // promptly at bound + grace rather than running to the sleep.
+        timeoutMs: THREAD_THEN_TIMEOUT_MS, killGraceMs: 500,
         codexBin: ctx.fakeCodex, env: scriptEnv(ctx, actions),
       });
       assert.equal(result.threadId, "slow-thread");
