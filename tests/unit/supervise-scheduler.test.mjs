@@ -490,43 +490,147 @@ describe("executeWave", () => {
     assert.deepEqual(result.integratedTaskIds.sort(), ["t1", "t2"]);
   });
 
-  test("one worker failure (NEEDS_CONTEXT) integrates no commits from that wave", async () => {
+  // ------------------------------------------------------------------------
+  // WAVE-LEVEL ALL-OR-NOTHING (plan line 1570: "one worker failure integrates
+  // no commits FROM THAT WAVE"). This is the WORKER-FAILURE all-or-nothing
+  // path — distinct from the CANDIDATE CHERRY-PICK CONFLICT path exercised
+  // further below, which is a different failure mode with its own handling.
+  // ------------------------------------------------------------------------
+
+  test("WAVE ALL-OR-NOTHING: one worker failure integrates no commits from that wave — including its SUCCESSFUL siblings", async () => {
     const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
-    const task = makeTask({ id: "t1", write_paths: ["a.txt"] });
+    // Deliberately MULTI-task: a single-task wave cannot distinguish
+    // "no commits from that worker" from "no commits from that wave", so a
+    // one-task version of this test would be unfalsifiable.
+    const tasks = [
+      makeTask({ id: "ok-one", write_paths: ["a.txt"] }),
+      makeTask({ id: "ok-two", write_paths: ["b.txt"] }),
+      makeTask({ id: "bad-task", write_paths: ["c.txt"] }),
+    ];
     const preHead = readHead(integ.path);
 
     const result = await executeWave({
-      repoInfo: info, runId, wave: 1, tasks: [task], baseCommit: info.headCommit,
-      worktreePaths, integrationWorktreePath: integ.path, logsDir,
-      runWorker: needsContextWorker(),
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 3,
+      runWorker: async (task, ctx) => {
+        if (task.id === "bad-task") return needsContextWorker()(task, ctx);
+        return goodWorker({ [task.write_paths[0]]: `${task.id} change\n` })(task, ctx);
+      },
     });
 
-    assert.equal(result.published, false);
-    assert.deepEqual(result.integratedTaskIds, []);
-    assert.equal(result.taskResults[0].status, "BLOCKED");
-    assert.match(result.taskResults[0].reason, /model-status-NEEDS_CONTEXT/);
-    assert.equal(readHead(integ.path), preHead);
+    assert.equal(result.published, false, "a wave with any failed worker must not publish");
+    assert.deepEqual(result.integratedTaskIds, [], "no commits integrate, including the successful siblings'");
+    assert.equal(result.waveOutcome, "BLOCKED_BY_TASK_FAILURE");
+    assert.equal(readHead(integ.path), preHead, "integration HEAD must be byte-for-byte unchanged");
+    assert.equal(isWorktreeClean(integ.path), true);
+
+    // The two successful tasks genuinely SUCCEEDED — they are not retro-
+    // actively marked failed. Only integration was withheld.
+    const okOne = result.taskResults.find((r) => r.taskId === "ok-one");
+    const okTwo = result.taskResults.find((r) => r.taskId === "ok-two");
+    const bad = result.taskResults.find((r) => r.taskId === "bad-task");
+    assert.equal(okOne.status, "READY");
+    assert.equal(okTwo.status, "READY");
+    assert.equal(bad.status, "BLOCKED");
+    assert.match(bad.reason, /model-status-NEEDS_CONTEXT/);
   });
 
-  test("a failed sibling does not block an independently successful task in the same wave", async () => {
+  test("WAVE ALL-OR-NOTHING: successful task commits still exist and survive on their private task branches for a later wave or recovery pass", async () => {
     const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
-    const tasks = [makeTask({ id: "ok-task", write_paths: ["a.txt"] }), makeTask({ id: "bad-task", write_paths: ["b.txt"] })];
+    const tasks = [
+      makeTask({ id: "ok-one", write_paths: ["a.txt"] }),
+      makeTask({ id: "bad-task", write_paths: ["c.txt"] }),
+    ];
 
     const result = await executeWave({
       repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
       worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 2,
       runWorker: async (task, ctx) => {
         if (task.id === "bad-task") return needsContextWorker()(task, ctx);
-        return goodWorker({ "a.txt": "ok-task change\n" })(task, ctx);
+        return goodWorker({ "a.txt": "ok-one change\n" })(task, ctx);
       },
     });
 
+    assert.equal(result.published, false);
+    const okOne = result.taskResults.find((r) => r.taskId === "ok-one");
+    assert.equal(okOne.status, "READY");
+
+    // THIS IS THE POINT OF PLAN LINE 1571. All-or-nothing withholds
+    // INTEGRATION; it must not delete or orphan the work itself. The commit
+    // was really created, is reachable on its own task branch, and carries
+    // the host-authored message — so wave two (or a recovery pass) can
+    // cherry-pick it without re-spending a worker.
+    assert.match(okOne.commit, /^[0-9a-f]{40}$/);
+    assert.equal(isCommitIntegrated({ repoInfo: info, ref: integ.branch, commit: okOne.commit }), false,
+      "not integrated — the wave failed");
+    const onTaskBranch = git(info.topLevel, ["rev-list", okOne.branch]).split("\n");
+    assert.ok(onTaskBranch.includes(okOne.commit), "the commit must survive on its private task branch");
+    assert.equal(git(info.topLevel, ["log", "-1", "--format=%s", okOne.commit]), `supervise(${runId}): ok-one`);
+
+    // The receipt (usage, thread ID, verification, log paths) survives too —
+    // none of it is re-derivable from git.
+    assert.ok(okOne.receipt);
+    assert.equal(okOne.receipt.commit, okOne.commit);
+    assert.equal(okOne.receipt.ownership_valid, true);
+
+    // And the wave-level outcome is unambiguous for Task 10: it can tell
+    // "wave failed, N commits available for later" from "wave published".
+    assert.equal(result.waveOutcome, "BLOCKED_BY_TASK_FAILURE");
+    assert.deepEqual(result.readyTaskIds, ["ok-one"]);
+  });
+
+  test("WAVE ALL-OR-NOTHING: no candidate worktree or branch is ever created when a task failed", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const tasks = [
+      makeTask({ id: "ok-one", write_paths: ["a.txt"] }),
+      makeTask({ id: "bad-task", write_paths: ["c.txt"] }),
+    ];
+
+    // Observe candidate CREATION directly rather than inferring it from
+    // post-state: a published candidate is removed on success and an aborted
+    // one is removed on failure, so the end state is identical either way and
+    // proves nothing. createCandidateIntegration necessarily calls
+    // worktreePaths.candidatePath(wave), so spying on it detects the attempt
+    // itself.
+    let candidatePathRequested = 0;
+    const realCandidatePath = worktreePaths.candidatePath;
+    const spiedPaths = {
+      ...worktreePaths,
+      candidatePath: (w) => { candidatePathRequested += 1; return realCandidatePath(w); },
+    };
+
+    await executeWave({
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths: spiedPaths, integrationWorktreePath: integ.path, logsDir, concurrency: 2,
+      runWorker: async (task, ctx) => {
+        if (task.id === "bad-task") return needsContextWorker()(task, ctx);
+        return goodWorker({ "a.txt": "change\n" })(task, ctx);
+      },
+    });
+
+    // Not merely "aborted cleanly" — never built at all.
+    assert.equal(candidatePathRequested, 0, "candidate integration must not even be attempted when a task failed");
+    assert.equal(existsSync(worktreePaths.candidatePath(1)), false, "no candidate worktree may be created");
+    const branches = git(info.topLevel, ["for-each-ref", "--format=%(refname:short)", "refs/heads/"]).split("\n");
+    assert.ok(!branches.includes(`carefully-crafted/${runId}/candidate-w1`), "no candidate branch may be created");
+  });
+
+  test("WAVE ALL-OR-NOTHING: a wave in which EVERY task succeeds still publishes normally", async () => {
+    const { info, runId, worktreePaths, integ, logsDir } = makeWaveHarness();
+    const tasks = [
+      makeTask({ id: "ok-one", write_paths: ["a.txt"] }),
+      makeTask({ id: "ok-two", write_paths: ["b.txt"] }),
+    ];
+
+    const result = await executeWave({
+      repoInfo: info, runId, wave: 1, tasks, baseCommit: info.headCommit,
+      worktreePaths, integrationWorktreePath: integ.path, logsDir, concurrency: 2,
+      runWorker: async (task, ctx) => goodWorker({ [task.write_paths[0]]: `${task.id} change\n` })(task, ctx),
+    });
+
     assert.equal(result.published, true);
-    assert.deepEqual(result.integratedTaskIds, ["ok-task"]);
-    const okResult = result.taskResults.find((r) => r.taskId === "ok-task");
-    const badResult = result.taskResults.find((r) => r.taskId === "bad-task");
-    assert.equal(okResult.status, "READY");
-    assert.equal(badResult.status, "BLOCKED");
+    assert.equal(result.waveOutcome, "PUBLISHED");
+    assert.deepEqual(result.integratedTaskIds, ["ok-one", "ok-two"]);
   });
 
   test("a worker that STAGES its change is rejected — a normal worker leaves only owned changes for the host to commit", async () => {
@@ -689,6 +793,10 @@ describe("executeWave", () => {
     assert.deepEqual(result.integratedTaskIds, [], "nothing integrates, including the commit that cherry-picked cleanly");
     assert.ok(result.conflict, "a conflict must be recorded");
     assert.equal(result.conflict.taskId, "z-task");
+    // The SECOND all-or-nothing path, reported distinctly from the
+    // worker-failure one: here every task genuinely succeeded, and it is
+    // composition onto the current integration HEAD that failed.
+    assert.equal(result.waveOutcome, "BLOCKED_BY_CANDIDATE_CONFLICT");
 
     const cTaskResult = result.taskResults.find((r) => r.taskId === "c-task");
     const zTaskResult = result.taskResults.find((r) => r.taskId === "z-task");

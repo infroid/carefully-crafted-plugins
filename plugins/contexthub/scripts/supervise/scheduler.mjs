@@ -494,22 +494,51 @@ async function runOneTaskAndCommit(task, ctx) {
 // executeWave — Step 4
 // --------------------------------------------------------------------------
 
-// Runs every task in the wave to completion (runPool — a single worker
-// failure never cancels its siblings), then integrates every READY task's
-// commit into a disposable candidate branch/worktree, in task-ID order.
-// Publication is a single `git merge --ff-only` from the clean integration
-// worktree, run ONLY after every candidate cherry-pick has succeeded — a
-// conflict at any point aborts and discards the WHOLE candidate (see
-// git.mjs's abortCandidateIntegration) and leaves the real integration
-// ref/worktree at its recorded pre-wave HEAD, byte-for-byte, regardless of
-// how many earlier cherry-picks in that same candidate had already
-// succeeded. A task whose OWN worker/verification failed never becomes a
-// candidate at all, so its failure never blocks a sibling's independent
-// success — that isolation is what "one worker failure integrates no
-// commits from that wave" means for THAT worker; it is the candidate-level
-// cherry-pick conflict (a genuinely different failure mode, proven in
-// tests/unit/supervise-git.test.mjs's regression test and exercised again
-// here at the wave level) that is all-or-nothing across the WHOLE candidate.
+// WAVE-LEVEL ALL-OR-NOTHING. If ANY task in the wave fails — ownership,
+// host verification, invalid report, or model status — the wave integrates
+// NOTHING. No candidate is built, no publish occurs, and the real
+// integration ref stays byte-for-byte at its recorded pre-wave HEAD.
+//
+// The plan text governs here; this was decided and is not to be
+// relitigated. Line 1570 reads "one worker failure integrates no commits
+// FROM THAT WAVE" (not "from that worker"), and line 1572 speaks of
+// "successful WAVES" integrating — the wave, not the task, is the unit that
+// succeeds. A per-task reading also makes line 1570 unfalsifiable: a failed
+// worker has no commit, so trivially none of its commits integrate, which
+// cannot be what a bullet listed among falsifiable properties intends.
+//
+// The safety argument, beyond the plan text: `assertParallelSafe` guarantees
+// disjoint write_paths, so a partial wave would merge CLEANLY — but clean is
+// not coherent. Task A's tests may assume Task B's change. All-or-nothing
+// preserves the invariant that the integration branch only ever holds
+// complete, fully-verified waves.
+//
+// SUCCESSFUL WORK IS WITHHELD, NEVER DESTROYED. Every task that succeeded
+// still gets its host commit created, and that commit survives on its
+// private `carefully-crafted/<run-id>/w<wave>-<task-id>` branch (plan line
+// 1571: "successful commits survive for recovery and are not rerun
+// unnecessarily"). A later wave or a recovery pass can cherry-pick it
+// without re-spending a worker. `readyTaskIds` on the return value names
+// exactly those commits.
+//
+// TWO DISTINCT ALL-OR-NOTHING PATHS, DELIBERATELY KEPT SEPARATE:
+//
+//   1. WORKER FAILURE (this gate, `waveOutcome:
+//      "BLOCKED_BY_TASK_FAILURE"`): a task never produced a verified commit.
+//      Detected before any candidate exists, so no candidate is created at
+//      all — there is nothing to abort.
+//   2. CANDIDATE CHERRY-PICK CONFLICT (`waveOutcome:
+//      "BLOCKED_BY_CANDIDATE_CONFLICT"`): every task succeeded, but their
+//      commits cannot be composed onto the current integration HEAD. The
+//      candidate DOES exist and must be aborted and removed, leaving the
+//      real integration ref untouched (see git.mjs's
+//      abortCandidateIntegration and the regression tests in
+//      tests/unit/supervise-git.test.mjs).
+//
+// Publication itself is a single `git merge --ff-only` from the clean
+// integration worktree, run only after every candidate cherry-pick has
+// succeeded.
+//
 // `resumeExactMap` (taskId -> sourceTaskId) drives ONLY worktree-path reuse
 // (git.mjs's clean-remove/recreate rule) — it must already reflect
 // `effectiveSessionPolicy`'s resolution, not a task's raw `session_policy`
@@ -605,11 +634,47 @@ export async function executeWave(options) {
   const readyResults = taskResults
     .filter((r) => r.status === "READY")
     .sort((a, b) => (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
+  const failedResults = taskResults.filter((r) => r.status !== "READY");
 
   const preWaveHead = readHead(integrationWorktreePath);
+  const readyTaskIds = readyResults.map((r) => r.taskId);
 
+  // THE WAVE-LEVEL ALL-OR-NOTHING GATE (see the header above).
+  //
+  // Placed BEFORE candidate creation on purpose: when a task has failed
+  // there is nothing to compose, so the correct behavior is to never build a
+  // candidate rather than to build one and abort it. That also keeps this
+  // path structurally distinct from the candidate-conflict path below, which
+  // genuinely does have a candidate to clean up.
+  //
+  // Note what is NOT done here: the successful tasks keep their "READY"
+  // status and their commits. Integration is withheld; the work is not
+  // discarded, retro-marked as failed, or deleted. `readyTaskIds` tells a
+  // caller exactly which commits are sitting on task branches, available to
+  // a later wave or a recovery pass without re-spending a worker.
+  if (failedResults.length > 0) {
+    return {
+      wave,
+      taskResults,
+      integratedTaskIds: [],
+      readyTaskIds,
+      failedTaskIds: failedResults.map((r) => r.taskId),
+      integrationHead: preWaveHead,
+      published: false,
+      conflict: null,
+      waveOutcome: "BLOCKED_BY_TASK_FAILURE",
+    };
+  }
+
+  // Unreachable in practice — assertParallelSafe rejects an empty task array,
+  // so with zero failures there is always at least one ready task — but kept
+  // as an explicit, typed outcome rather than falling through to candidate
+  // creation with nothing to pick.
   if (readyResults.length === 0) {
-    return { wave, taskResults, integratedTaskIds: [], integrationHead: preWaveHead, published: false, conflict: null };
+    return {
+      wave, taskResults, integratedTaskIds: [], readyTaskIds: [], failedTaskIds: [],
+      integrationHead: preWaveHead, published: false, conflict: null, waveOutcome: "NO_TASKS",
+    };
   }
 
   // TASK RESULTS ARE NEVER LOST TO AN INTEGRATION-PHASE THROW.
@@ -627,9 +692,12 @@ export async function executeWave(options) {
     wave,
     taskResults,
     integratedTaskIds: [],
+    readyTaskIds,
+    failedTaskIds: [],
     integrationHead: preWaveHead,
     published: false,
     conflict: null,
+    waveOutcome: "BLOCKED_BY_INTEGRATION_ERROR",
     integrationError: { reason, message: err?.message ?? String(err) },
     ...extra,
   });
@@ -684,7 +752,23 @@ export async function executeWave(options) {
       ? { ...r, status: "BLOCKED", reason: r.taskId === conflict.taskId ? "candidate-cherry-pick-conflict" : "candidate-integration-aborted-by-sibling-conflict" }
       : r));
 
-    return { wave, taskResults: finalTaskResults, integratedTaskIds: [], integrationHead: preWaveHead, published: false, conflict, candidateLogPath: logPath };
+    return {
+      wave,
+      taskResults: finalTaskResults,
+      integratedTaskIds: [],
+      // The commits still exist on their task branches here too — the
+      // candidate was discarded, not the work. Reported from the pre-conflict
+      // ready set so a recovery pass can still find them.
+      readyTaskIds,
+      failedTaskIds: [],
+      integrationHead: preWaveHead,
+      published: false,
+      conflict,
+      // Deliberately a DIFFERENT outcome from BLOCKED_BY_TASK_FAILURE: every
+      // task succeeded, but their commits could not be composed.
+      waveOutcome: "BLOCKED_BY_CANDIDATE_CONFLICT",
+      candidateLogPath: logPath,
+    };
   }
 
   let publish;
@@ -716,16 +800,30 @@ export async function executeWave(options) {
         wave,
         taskResults,
         integratedTaskIds,
+        readyTaskIds,
+        failedTaskIds: [],
         integrationHead: headNow,
         published: true,
         conflict: null,
+        // The wave genuinely published; only cleanup failed.
+        waveOutcome: "PUBLISHED",
         integrationError: { reason: "post-merge-cleanup-failed", message: err.message },
       };
     }
     return integrationFailure("publish-failed", err);
   }
 
-  return { wave, taskResults, integratedTaskIds, integrationHead: publish.head, published: true, conflict: null };
+  return {
+    wave,
+    taskResults,
+    integratedTaskIds,
+    readyTaskIds,
+    failedTaskIds: [],
+    integrationHead: publish.head,
+    published: true,
+    conflict: null,
+    waveOutcome: "PUBLISHED",
+  };
 }
 
 // --------------------------------------------------------------------------
