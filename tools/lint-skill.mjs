@@ -28,22 +28,54 @@ const RULES = {
   BODY_MAX_LINES: 250,
 };
 
+// Parses the YAML frontmatter block. The accept set here must be a
+// STRICT SUBSET of what a real YAML parser accepts: being stricter than
+// the platform only costs a false alarm, but being looser means the
+// linter reads a key the platform will never see — and every rule keyed
+// on that key (notably the manual-only evals exemption) then guards
+// nothing. Two ways that used to happen, both now rejected:
+//
+//   disable-model-invocation:true   <- no separator space. YAML block
+//                                      mappings require ": ", so a real
+//                                      parser yields NO SUCH KEY.
+//   disable-model-invocation: false
+//   disable-model-invocation: true  <- duplicate key. Strict YAML errors;
+//                                      a last-wins reader silently picks
+//                                      one and can disagree with the
+//                                      platform about which.
 export function parseFrontmatter(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) return null;
   const fmText = match[1];
   const fm = {};
+  const problems = [];
+  const seen = new Set();
   let currentKey = null;
   for (const line of fmText.split("\n")) {
-    const kv = line.match(/^([a-zA-Z][a-zA-Z0-9_-]*):\s*(.*)$/);
+    // Require the ": " separator (or a bare "key:" with no value).
+    const kv = line.match(/^([a-zA-Z][a-zA-Z0-9_-]*):(?:\s+(.*))?$/);
     if (kv) {
       currentKey = kv[1];
-      fm[currentKey] = kv[2];
+      if (seen.has(currentKey)) {
+        problems.push(
+          `frontmatter key "${currentKey}" appears more than once — strict YAML rejects duplicate keys, so the linter and the platform could disagree about which value wins`
+        );
+      }
+      seen.add(currentKey);
+      fm[currentKey] = kv[2] ?? "";
+    } else if (/^([a-zA-Z][a-zA-Z0-9_-]*):\S/.test(line)) {
+      // Looks like a mapping but has no space after the colon. A real
+      // YAML parser does not produce a key here, so neither do we — and
+      // we say so loudly rather than silently dropping the line.
+      const key = line.match(/^([a-zA-Z][a-zA-Z0-9_-]*):/)[1];
+      problems.push(
+        `frontmatter line "${line.trim()}" is missing the space after the colon — YAML block mappings require "${key}: value", so the platform would not see this key at all`
+      );
     } else if (currentKey && /^\s+\S/.test(line)) {
       fm[currentKey] = (fm[currentKey] + " " + line.trim()).trim();
     }
   }
-  return { frontmatter: fm, bodyStart: match[0].length };
+  return { frontmatter: fm, bodyStart: match[0].length, problems };
 }
 
 export function countWords(s) {
@@ -59,7 +91,7 @@ export function countWords(s) {
 // this same strict result — a lenient parser would let a typo silently
 // claim the exemption. A missing field is not a typo; it legitimately
 // defaults to model-invocable, the platform default.
-export function classifyInvocation(frontmatter, findings) {
+export function classifyInvocation(frontmatter, findings = { errors: [], warnings: [] }) {
   const raw = frontmatter["disable-model-invocation"];
   if (raw === undefined) return false;
   if (raw === "true") return true;
@@ -80,7 +112,12 @@ export function lintOne(filePath) {
     return { findings, name: null, manualOnly: false };
   }
 
-  const { frontmatter, bodyStart } = parsed;
+  const { frontmatter, bodyStart, problems } = parsed;
+
+  // Malformed-YAML problems are errors, not warnings: each one is a case
+  // where the linter's view of the frontmatter could diverge from the
+  // platform's.
+  for (const p of problems) findings.errors.push(p);
 
   // name
   const name = frontmatter.name;
@@ -125,14 +162,17 @@ export function lintOne(filePath) {
       );
     }
 
-    // Auto-triggering (model-invocable) skills must include trigger
-    // language so Claude knows when to fire them. Manual-only skills are
-    // explicit-invocation and don't need it.
+    // Model-invocable skills MUST include trigger language so Claude
+    // knows when to fire them — this is a hard requirement, not a style
+    // note. A model-invocable skill with no routing language burns
+    // always-on context on every turn while giving Claude nothing to
+    // route on. Manual-only skills are explicit-invocation and are
+    // exempt.
     if (!manualOnly) {
       const hasTrigger = /\b(use whenever|use when|use for|reach for|stage)\b/i.test(desc);
       if (!hasTrigger) {
-        findings.warnings.push(
-          'model-invocable description lacks an explicit trigger phrase ("Use whenever ...", "Reach for ...") — pushy template expects one'
+        findings.errors.push(
+          'model-invocable description lacks an explicit trigger phrase ("Use whenever ...", "Reach for ...") — a model-invocable skill must tell Claude when to fire it'
         );
       }
     }

@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { lintOne, findSkills, parseFrontmatter } from "../../tools/lint-skill.mjs";
+import { lintOne, findSkills, parseFrontmatter, classifyInvocation } from "../../tools/lint-skill.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LINT = path.join(REPO_ROOT, "tools", "lint-skill.mjs");
@@ -161,8 +161,15 @@ body
   });
 });
 
-test("a typo'd disable-model-invocation value fails loudly rather than defaulting silently", () => {
+test("a typo'd disable-model-invocation value fails loudly AND does not grant the evals exemption", () => {
   withTmpDir("lint_bad_bool", (dir) => {
+    // Deliberately NO evals/ directory. That is what makes the
+    // consequence of manualOnly=false observable: if any lenient second
+    // check ever re-grants the exemption on a truthy-looking value
+    // (e.g. `if (!(manualOnly || frontmatter["disable-model-invocation"]))`),
+    // the evals error disappears and this test fails. With a valid
+    // evals/ present, both sides of that mutation look identical and the
+    // test proves nothing.
     writeSkill(
       dir,
       `---
@@ -174,25 +181,122 @@ disable-model-invocation: yes
 # probe
 
 body
-`,
-      { evals: TWO_VALID_EVALS }
+`
     );
     const { findings, manualOnly } = lintOne(path.join(dir, "SKILL.md"));
-    assert.match(findings.errors.join("\n"), /disable-model-invocation must be the literal boolean/);
-    // A rejected value must not silently grant the manual-only exemption.
+    const joined = findings.errors.join("\n");
+    assert.match(joined, /disable-model-invocation must be the literal boolean/);
     assert.equal(manualOnly, false);
+    // The load-bearing assertion: the exemption was NOT granted.
+    assert.match(
+      joined,
+      /model-invocable skills must ship evals\/evals\.json/,
+      "a rejected disable-model-invocation value must not exempt the skill from the evals requirement"
+    );
   });
 });
 
-test("model-invocable skills require explicit trigger language (warns) and 2+ evals (errors)", () => {
-  withTmpDir("lint_auto_requirements", (dir) => {
-    // No trigger phrase, no evals dir — model-invocable by omission of
-    // disable-model-invocation.
+test("a frontmatter key with no space after the colon is rejected, not silently honored", () => {
+  withTmpDir("lint_no_separator", (dir) => {
+    // YAML block mappings require ": ". A real parser yields no such
+    // key here, so the linter must not honor it either — otherwise a
+    // skill could claim manual-only (and the evals exemption) via a
+    // field the platform will never see.
+    writeSkill(
+      dir,
+      `---
+name: nospace
+description: Fire the probe payload on demand for calibration runs.
+disable-model-invocation:true
+---
+
+# nospace
+
+body
+`
+    );
+    const { findings, manualOnly } = lintOne(path.join(dir, "SKILL.md"));
+    const joined = findings.errors.join("\n");
+    assert.match(joined, /missing the space after the colon/);
+    assert.equal(manualOnly, false, "a key YAML would not produce must not classify the skill as manual-only");
+    assert.match(
+      joined,
+      /model-invocable skills must ship evals\/evals\.json/,
+      "the malformed key must not grant the manual-only evals exemption"
+    );
+  });
+});
+
+test("a duplicated frontmatter key is rejected rather than resolved last-wins", () => {
+  withTmpDir("lint_dup_key", (dir) => {
+    // Strict YAML rejects duplicate keys. A last-wins reader would call
+    // this manual-only; the platform might not agree.
+    writeSkill(
+      dir,
+      `---
+name: dup
+description: Fire the probe payload on demand for calibration runs.
+disable-model-invocation: false
+disable-model-invocation: true
+---
+
+# dup
+
+body
+`
+    );
+    const { findings } = lintOne(path.join(dir, "SKILL.md"));
+    assert.match(findings.errors.join("\n"), /appears more than once/);
+  });
+});
+
+test("classifyInvocation is callable without a findings argument (exported signature)", () => {
+  // Minor: the error branch used to throw TypeError on its own public
+  // signature, so a caller got correct results right up until it hit a
+  // malformed value.
+  assert.equal(classifyInvocation({ "disable-model-invocation": "true" }), true);
+  assert.equal(classifyInvocation({}), false);
+  assert.doesNotThrow(() => classifyInvocation({ "disable-model-invocation": "yes" }));
+  assert.equal(classifyInvocation({ "disable-model-invocation": "yes" }), false);
+});
+
+test("model-invocable skills require explicit trigger language — enforced as an error, isolated from the evals rule", () => {
+  withTmpDir("lint_auto_no_trigger", (dir) => {
+    // Ships VALID evals, so the evals rule is satisfied and cannot be
+    // what fails this. The only defect is the missing trigger phrase —
+    // which must be an error (exit 1), not a warning (exit 0).
+    writeSkill(
+      dir,
+      `---
+name: notrigger
+description: Generate widgets from FooCorp's WidgetGen CLI for various shapes and sizes and colors as requested.
+---
+
+# notrigger
+
+body
+`,
+      { evals: TWO_VALID_EVALS }
+    );
+    const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(
+      res.status,
+      1,
+      `missing trigger language must fail the build, not just warn:\n${res.stdout}`
+    );
+    assert.match(res.stdout, /error: model-invocable description lacks an explicit trigger phrase/);
+  });
+});
+
+test("model-invocable skills require evals/evals.json — isolated from the trigger-language rule", () => {
+  withTmpDir("lint_auto_no_evals", (dir) => {
+    // Has a trigger phrase, so that rule is satisfied and cannot be what
+    // fails this. The only defect is the missing evals file.
     writeSkill(
       dir,
       `---
 name: noeval
-description: Generate widgets from FooCorp's WidgetGen CLI for various shapes and sizes and colors as requested.
+description: Use whenever the user wants widgets, gizmos, or any kind of mechanical contraption built quickly.
 ---
 
 # noeval
@@ -202,8 +306,34 @@ body
     );
     const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
     assert.equal(res.status, 1, "expected lint to fail without evals");
-    assert.match(res.stdout, /model-invocable skills must ship evals\/evals\.json/);
-    assert.match(res.stdout, /lacks an explicit trigger phrase/);
+    assert.match(res.stdout, /error: model-invocable skills must ship evals\/evals\.json/);
+    assert.doesNotMatch(res.stdout, /lacks an explicit trigger phrase/);
+  });
+});
+
+test("a model-invocable skill shipping only ONE eval is rejected (the 2+ bound is real)", () => {
+  withTmpDir("lint_one_eval", (dir) => {
+    writeSkill(
+      dir,
+      `---
+name: oneeval
+description: Use whenever the user wants widgets, gizmos, or any kind of mechanical contraption built quickly.
+---
+
+# oneeval
+
+body
+`,
+      {
+        evals: {
+          skill_name: "oneeval",
+          evals: [{ id: 1, prompt: "do the thing", assertions: [{ name: "x", description: "y" }] }],
+        },
+      }
+    );
+    const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(res.status, 1, "one eval must fail the 2+ requirement");
+    assert.match(res.stdout, /must contain at least 2 evals \(found 1\)/);
   });
 });
 
@@ -287,6 +417,68 @@ body
     const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
     assert.equal(res.status, 1, "14-word auto description should fail the 15-word floor");
     assert.match(res.stdout, /min 15 for a model-invocable skill/);
+  });
+
+  withTmpDir("lint_auto_word_bounds_ok", (dir) => {
+    // 15 words: exactly at the model-invocable floor — must PASS, which
+    // pins the boundary from the accepting side too.
+    writeSkill(
+      dir,
+      `---
+name: short
+description: Use whenever the user wants widgets generated from the Foo CLI for basic testing purposes.
+---
+
+# short
+
+body
+`,
+      { evals: TWO_VALID_EVALS }
+    );
+    const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(res.status, 0, `15-word auto description should pass:\n${res.stdout}`);
+  });
+});
+
+test("a description of exactly 60 words passes in both modes (ceiling is inclusive)", () => {
+  const filler = "widget ".repeat(60).trim() + "."; // 60 words
+
+  withTmpDir("lint_manual_exactly_60", (dir) => {
+    writeSkill(
+      dir,
+      `---
+name: exactly
+description: ${filler}
+disable-model-invocation: true
+---
+
+# exactly
+
+body
+`
+    );
+    const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(res.status, 0, `exactly 60 words should pass for manual-only:\n${res.stdout}`);
+  });
+
+  withTmpDir("lint_auto_exactly_60", (dir) => {
+    // "Use whenever the user wants" (5) + 55 filler words = 60.
+    const autoFiller = "Use whenever the user wants " + "widget ".repeat(55).trim() + ".";
+    writeSkill(
+      dir,
+      `---
+name: exactly
+description: ${autoFiller}
+---
+
+# exactly
+
+body
+`,
+      { evals: TWO_VALID_EVALS }
+    );
+    const res = spawnSync("node", [LINT, path.join(dir, "SKILL.md")], { encoding: "utf8" });
+    assert.equal(res.status, 0, `exactly 60 words should pass for model-invocable:\n${res.stdout}`);
   });
 });
 

@@ -35,8 +35,11 @@ description from Claude's always-on context entirely and disables
 automatic invocation — the skill runs only when the user explicitly
 invokes it (`/{plugin}:{skill}`), matching current Claude Code
 platform behavior for that field. A skill with the field absent (or
-`false`) is model-invocable and must include trigger language ("Use
-whenever …", "Reach for …") so Claude knows when to fire it.
+`false`) is model-invocable and **must** include trigger language
+("Use whenever …", "Reach for …") so Claude knows when to fire it —
+this is a hard lint error, not a style note. A model-invocable skill
+with no routing language spends always-on context on every turn while
+giving Claude nothing to route on.
 
 A description may still add "Slash-command only: invoke as
 /{plugin}:{skill} <args>." for human readability, but that phrase is
@@ -44,6 +47,13 @@ never authoritative by itself — the linter rejects a "Slash-command
 only" claim made without `disable-model-invocation: true` also set in
 frontmatter. The frontmatter field is the only thing that actually
 turns off auto-invocation; prose alone cannot.
+
+The linter reads frontmatter more strictly than YAML does, deliberately:
+its accept set must be a **subset** of what a real parser accepts. A key
+written without the `": "` separator (`disable-model-invocation:true`)
+or a duplicated key is a hard error, because in both cases the platform
+and the linter could otherwise disagree about which keys exist — and a
+rule keyed on a field the platform never sees guards nothing.
 
 ## 3. Naming convention
 
