@@ -100,15 +100,24 @@ model-invocable ones.
 In Claude Code:
 
 ```bash
+/plugin marketplace add anthropics/claude-plugins-official
 /plugin marketplace add https://github.com/infroid/carefully-crafted-plugins
 /plugin install contexthub@carefully-crafted-plugins
 /plugin install codex@carefully-crafted-plugins
 /plugin install agy@carefully-crafted-plugins
 ```
 
-Installing `contexthub` auto-resolves and enables its one required
-dependency, `superpowers@claude-plugins-official` — no separate install
-step. `codex` and `agy` are optional, separately-installed bridges: install
+**Add `claude-plugins-official` first.** `contexthub` requires
+`superpowers@claude-plugins-official`, and Claude Code resolves that
+dependency only from a marketplace you have already added. With it present,
+installing `contexthub` pulls in and enables Superpowers automatically —
+no separate install step. **Without it, the install still reports success
+and gives you `contexthub` alone**; the unresolved dependency surfaces only
+on a later install attempt, as `1 dependency still unresolved:
+superpowers@claude-plugins-official`. If you see that, add the marketplace
+and re-run the install.
+
+`codex` and `agy` are optional, separately-installed bridges: install
 `codex` only for `/codex:*` commands, `agy` only for `/agy:*` commands.
 Neither is required by `/contexthub:supervise`.
 
