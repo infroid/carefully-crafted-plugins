@@ -1,5 +1,9 @@
 # Contexthub Consolidation Implementation Plan
 
+> **Historical v5 document.** This records the superseded consolidation design.
+> The active v6 surface and implementation are defined by
+> `docs/superpowers/plans/2026-07-18-carefully-crafted-supervision-redesign.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fold the `forge` (7 phases) and `triage` plugins into `contexthub` (9 skills total), add a shared agent-availability detector, make every multi-agent skill degrade gracefully when codex/agy are missing, and ship as `v5.0.0`.

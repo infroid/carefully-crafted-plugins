@@ -1,7 +1,8 @@
 ---
 name: exec
-description: (context-hub:exec) Power-user escape hatch — pass any raw prompt directly to Google's Antigravity CLI (agy) for general delegation. Slash-command only: invoke as /agy:exec <prompt>. For focused tasks prefer /agy:longctx, /agy:nanobanana, or /agy:veo.
+description: Power-user escape hatch — pass any raw prompt directly to Google's Antigravity CLI (agy) for general delegation to a second, independent coding agent. Slash-command only: invoke as /agy:exec <prompt>. For image generation prefer /agy:nanobanana.
 argument-hint: <task for agy>
+disable-model-invocation: true
 ---
 
 # Antigravity Raw Passthrough
@@ -37,9 +38,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/agy-invoke.mjs --prompt "$ARGUMENTS"
 
 ## When to use which agy skill
 
-- **Repo-wide or huge-document analysis** → `/agy:longctx`
-- **Image generation** (Nano Banana Pro) → `/agy:nanobanana`
-- **Video generation** (Veo) → `/agy:veo`
+- **Image generation** (Nano Banana) → `/agy:nanobanana`
 - **Anything else** delegated to Antigravity → this skill, `/agy:exec`
 
 For most general coding tasks, Claude Code itself is the right tool —

@@ -1,22 +1,27 @@
 ---
 name: setup
-description: (context-hub:setup) Optional — re-scaffold the Codex bridge in this repo (refresh starter constraint/output-format files, verify the Codex CLI install, update .gitignore). Other Codex skills auto-run setup on first use; /codex:setup is only needed to refresh or re-verify. Slash-command only.
+description: Optional — copy the Codex bridge's editable default constraint/output-format files into this repo, verify the Codex CLI install, and update .gitignore. Runs only on explicit invocation; no Codex skill scaffolds or mutates the repo automatically. Slash-command only: invoke as /codex:setup.
+disable-model-invocation: true
 ---
 
 # Codex Bridge Setup
 
-This skill runs only when the user invokes `/codex:setup` explicitly. It is
-**optional**: the `imagegen`, `reason`, `playwright`, and `review` skills
-automatically run a quick one-time setup (`setup.mjs --ensure`) the first
-time they are used in a repo. Use `/codex:setup` to re-scaffold, refresh
-starter files, or check the Codex CLI install.
+This skill runs only when the user invokes `/codex:setup` explicitly — it
+never auto-triggers and no other Codex skill calls it. The `exec`,
+`imagegen`, `reason`, `resume`, and `review` skills reference the packaged
+defaults directly under `${CLAUDE_PLUGIN_ROOT}/reference/defaults/` when no
+project-local file exists; none of them scaffold anything into the repo.
+Run `/codex:setup` when you want your own editable copies of those defaults
+in the project (so you can customize them), or to re-verify the Codex CLI
+install.
 
 ## What it does
 
 1. Checks `codex --version`. If absent, prints install instructions (does not auto-install).
-2. Idempotently scaffolds in the user's repo:
+2. Copies the packaged defaults into the user's repo (only files that don't
+   already exist there — never overwrites):
    - `docs/carefully-crafted-plugins/constraints/` with `code-style.md`, `design-system.md`, `security.md`
-   - `docs/carefully-crafted-plugins/output-formats/` with `image-icon-256.md`, `image-hero-1024x768.md`, `raw-prose.md`, `raw-code.md`
+   - `docs/carefully-crafted-plugins/output-formats/` with `image-icon-256.md`, `image-hero-1024x768.md`, `raw-prose.md`, `raw-code.md`, `code-review.md`
    - `docs/carefully-crafted-plugins/handoffs/` (empty)
    - `docs/carefully-crafted-plugins/output/images/` (empty)
 3. Appends to `.gitignore` (if not present): `docs/carefully-crafted-plugins/handoffs/` and `docs/carefully-crafted-plugins/output/`

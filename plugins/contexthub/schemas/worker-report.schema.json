@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carefully-crafted/contexthub/supervise/worker-report.schema.json",
+  "title": "Codex worker task report",
+  "description": "Structured output required from a Codex worker at the end of a task. This is a self-report — a model claim, not a host fact. plugins/contexthub/scripts/supervise/contracts.mjs:validateWorkerReport enforces the semantic rules (status/acceptance/verification/blocker coherence) that this shape alone cannot express; the host still derives the authoritative record from git and Codex event data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "acceptance", "verification", "concerns", "blockers"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"]
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 480 },
+    "acceptance": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]{2,3}$" },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "UNCERTAIN"] },
+          "evidence": { "type": "string", "minLength": 1, "maxLength": 240 }
+        }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "summary"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "NOT_RUN"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 240 }
+        }
+      }
+    },
+    "concerns": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+    },
+    "blockers": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+    }
+  }
+}

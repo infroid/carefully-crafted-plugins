@@ -1,86 +1,91 @@
 ---
 name: converge
-description: (context-hub:converge) Stage a four-phase Delphi debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — each agent answers, critiques, refines, then Claude synthesizes consensus and remaining disagreement. Slash-command only: invoke as /contexthub:converge <question>. ~6 external CLI calls; reach for it only on genuinely hard architecture, design, or correctness questions where diverse perspectives are worth the cost.
-argument-hint: <prompt to debate>
+description: Stage a short cross-provider debate among Claude, OpenAI Codex, and Google Antigravity on one hard question — independent answers by default, or full critique-and-refinement with --full. Slash-command only: invoke as /contexthub:converge <question>. Read-only decision evidence; reach for it only on genuinely hard architecture, design, or correctness questions.
+argument-hint: [--full] <prompt to debate>
+disable-model-invocation: true
 ---
 
-# Converge: Systematic Multi-Agent Debate
+# Converge: Cross-Provider Decision Evidence
 
-You orchestrate a four-phase Delphi-style debate among **three agents**:
+You orchestrate a debate among **up to three participants**:
 
 1. **Claude** — you, in this session.
-2. **OpenAI Codex** — `codex exec` (frontier reasoning, OpenAI lineage).
-3. **Google Antigravity** — `agy -p` (Gemini 3 Pro, 1M context, Google lineage).
+2. **OpenAI Codex** — `codex exec`, an independent OpenAI-lineage agent.
+3. **Google Antigravity** — `agy -p`, an independent Google-lineage agent.
 
 The goal is **not** to pick a winner. The goal is to **converge on a refined
 answer that surfaces consensus, remaining disagreements, and the reasoning on
 each side** — so the user can make an informed call.
 
+This skill supplies cross-provider decision evidence. Applicable Superpowers
+process skills retain ownership of design, debugging, planning, execution,
+verification, and delivery. Converge never writes a spec or plan, implements
+code, verifies a branch, or launches `/contexthub:supervise` — and neither
+`/contexthub:supervise` nor any Superpowers skill auto-launches Converge.
+
 ## When to use this
 
 Reach for `/contexthub:converge` only when diverse perspectives genuinely add
-value:
+value: hard technical decisions, ambiguous design problems with multiple
+defensible answers, high-stakes analysis, or recent/contentious topics where
+a single model could be stale or biased. Not for trivial questions, routine
+coding tasks, or time-sensitive requests.
 
-- Hard technical decisions — architecture choices, tradeoff calls.
-- Ambiguous design problems with multiple defensible answers.
-- High-stakes analysis — security audits, correctness reviews.
-- Recent or contentious topics where any single model could be stale or biased.
+## Modes
 
-Do **not** use it for trivial questions, routine coding tasks, or time-
-sensitive requests. The full protocol is 6 external CLI calls and takes
-several minutes; the lightweight variant (Phase 1 + Phase 4 only) takes 2.
+- **Default** — Claude's own answer plus one independent answer from each
+  *available* external agent, then Claude's synthesis. Up to 2 external CLI
+  calls.
+- **`--full`** — adds mutual critique and refinement before synthesis: every
+  external agent sees all Round-1 answers, critiques the other two, then
+  refines its own answer. Up to 6 external CLI calls.
 
-## Prerequisites
-
-- `codex` CLI on PATH and signed in (`codex login`).
-- `agy` CLI on PATH and signed in (run `agy` once interactively first).
-- If either is missing, tell the user how to install it and **stop**. Do not
-  silently fall back to a two-agent debate without their explicit permission.
+Prefer default for ordinary "give me multiple views" requests. `--full` is
+opt-in — never upgrade to it silently just because a question looks hard.
 
 ## Your input
 
-When invoked as `/contexthub:converge <prompt>`, the user's text arrives as
-`$ARGUMENTS` — that is **the prompt under debate**. Refer to it as `Q`
-throughout. Keep a clean text copy of `Q` to feed into every external call.
+Invoked as `/contexthub:converge [--full] <prompt>`. If `$ARGUMENTS` begins
+with `--full` (optionally followed by whitespace), strip it, run in `--full`
+mode, and treat the remainder as the question under debate, `Q`. Otherwise
+run in default mode and all of `$ARGUMENTS` is `Q`. Keep a clean text copy of
+`Q` to feed into every external call unchanged.
 
-## Step 0: Detect available agents
+## Step 0: Detect participants, then report before any call
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/agent-availability.mjs
 ```
 
-This prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
-Run only the delegation steps below whose agent is `true`. When you skip a step
-because its agent is absent, say so in one line. If `count` is 1 (Claude only),
-do the work solo and tell the user once: *"Ran this with Claude only — install or
-log into codex/agy for fuller cross-checks."*
+Prints `{ "claude": true, "codex": <bool>, "agy": <bool>, "count": N, "externalCount": M }`.
+`codex`/`agy` mean **a candidate binary is on PATH** — not that it is
+authenticated or working. That is checked lazily at call time, below, not
+here.
 
-**Lazy auth:** if a `codex`/`agy` call later fails with a not-logged-in / auth
-error, treat that agent as unavailable for the rest of this run — drop its role,
-print the degraded note, and continue with the remaining agents.
+Before making any external call, state the exact participant set in one
+line — e.g. *"Participants: Claude + Codex (Agy not found on PATH)."* Then
+proceed with exactly that set: don't add an agent you didn't report, and
+don't drop one you did report without saying so. If the user's request named
+specific agents, honor that instead of the auto-detected default.
 
-## Phase 0: Pre-flight — choose depth
+If asked why an agent is missing: Codex needs `codex login`; Antigravity
+needs `agy` run once interactively to sign in. Mention this only if asked —
+never block the run on it.
 
-Before any external calls, decide depth with the user (one quick line, not a
-ceremony):
-
-- **Full protocol** (default) — 4 phases, 6 external calls. The right choice
-  for genuinely hard or high-stakes questions.
-- **Lightweight** — Phase 1 + Phase 4 only. 2 external calls. Use when the
-  user wants diverse views but not the full critique/refinement ceremony.
-
-State which one you are running so the user is not surprised by the cost.
+**Lazy auth:** if a reported `codex`/`agy` call later fails (not logged in,
+auth error, non-zero exit), drop that agent for the rest of this run, say so
+in one line, and continue with the remaining participants.
 
 ## Phase 1 — Independent first responses (parallel)
 
-Each agent answers `Q` **without seeing the others**. This preserves diversity
-— no anchoring on whoever spoke first.
+Each agent answers `Q` **without seeing the others** — no anchoring on
+whoever spoke first.
 
 1. Write **your own** first answer to `Q` and call it `CLAUDE_R1`. Self-
-   contained, concrete, falsifiable. A paragraph or short structured
-   response — not chain-of-thought, not "let me think about this".
+   contained, concrete, falsifiable — a paragraph or short structured
+   response, not chain-of-thought.
 
-2. In parallel (single message, two `Bash` calls), run:
+2. In parallel (single message, one `Bash` call per available agent), run:
 
    ```bash
    codex exec --skip-git-repo-check --sandbox read-only \
@@ -88,26 +93,31 @@ Each agent answers `Q` **without seeing the others**. This preserves diversity
    agy -p "$Q" 2>/dev/null
    ```
 
-   Capture stdout as `CODEX_R1` and `AGY_R1`.
+   Capture stdout as `CODEX_R1` and `AGY_R1` for whichever agents are in the
+   participant set.
 
-3. If either call fails (binary missing, auth error, timeout), surface that
-   to the user and ask whether to proceed as a 2-agent debate or stop.
+3. If a call fails despite being reported as a candidate, apply the lazy-auth
+   rule above and continue with the remaining participants.
 
-## Phase 2 — Mutual critique (parallel) — skip in lightweight mode
+## Phase 2 — Mutual critique (parallel) — `--full` mode only
 
-Each external agent receives **all three Round 1 answers** and produces a
-critique. You critique in your own context.
+Skip this phase entirely in default mode; go straight to Phase 4.
 
-1. Write your critique, `CLAUDE_CRIT`. For each of `CODEX_R1` and `AGY_R1`,
-   list: (a) what you agree with, (b) what you disagree with and **why**,
+Each external agent receives **all Round 1 answers** and critiques the other
+two.
+
+1. Write your critique, `CLAUDE_CRIT`. For each of `CODEX_R1` and `AGY_R1`
+   present: (a) what you agree with, (b) what you disagree with and **why**,
    (c) what's missing, (d) anything outright wrong (cite the evidence).
 
 2. Load the **Phase 2 critique prompt** from
    `${CLAUDE_PLUGIN_ROOT}/skills/converge/references/critique-and-refinement-prompts.md`,
-   substitute `<Q>`, `<CLAUDE_R1>`, `<CODEX_R1>`, `<AGY_R1>`, and invoke Codex
-   and agy in parallel. Capture `CODEX_CRIT` and `AGY_CRIT`.
+   substitute `<Q>`, `<CLAUDE_R1>`, `<CODEX_R1>`, `<AGY_R1>`, and invoke each
+   present external agent in parallel. Capture `CODEX_CRIT` and `AGY_CRIT`.
 
-## Phase 3 — Refinement (parallel) — skip in lightweight mode
+## Phase 3 — Refinement (parallel) — `--full` mode only
+
+Skip this phase entirely in default mode.
 
 Each agent updates its answer in light of the critiques.
 
@@ -117,73 +127,63 @@ Each agent updates its answer in light of the critiques.
 
 2. Load the **Phase 3 refinement prompt** from
    `${CLAUDE_PLUGIN_ROOT}/skills/converge/references/critique-and-refinement-prompts.md`.
-   Send a tailored copy to each external agent (Codex gets `CODEX_R1` +
-   critiques against it; agy gets `AGY_R1` + critiques against it). Invoke
-   in parallel. Capture `CODEX_R2` and `AGY_R2`.
+   Send a tailored copy to each present external agent (its own Round 1
+   answer plus the critiques against it). Invoke in parallel. Capture
+   `CODEX_R2` and `AGY_R2`.
 
 ## Phase 4 — Synthesis (Claude only)
 
-You produce the converged final response. **Do not** call any more external
+Produce the converged final response. **Do not** call any more external
 agents. Structure it like this:
 
 ### Consensus
-Points where all three agents now agree (after refinement). State each
-briefly and concretely.
+Points where every participant now agrees. State each briefly and
+concretely. (Default mode: agreement across the Round 1 answers, since there
+was no critique/refinement round.)
 
 ### Disagreements
-For each genuine disagreement that survived refinement, surface:
-- The competing positions (who holds what).
-- Each side's strongest argument.
-- **Your read** of which side is more defensible — or "genuinely uncertain,
-  user call" if neither is clearly stronger.
+For each genuine disagreement, surface: the competing positions (who holds
+what), each side's strongest argument, and **your read** of which side is
+more defensible — or "genuinely uncertain, user call" if neither is clearly
+stronger. In default mode this section usually dominates, since agents had
+no chance to move toward each other.
 
 ### Recommendation
-Your synthesized best answer. Build it from the consensus points; resolve
-disagreements with your best judgment. **Flag explicitly** any judgment call
-where you resolved on weak evidence, so the user can override.
+Your synthesized best answer, built from consensus and your best judgment on
+disagreements. **Flag explicitly** any judgment call resolved on weak
+evidence so the user can override it.
 
 ### What the user should decide
-1–3 specific decision points you are leaving to the user, each with the
-relevant evidence compiled. Do not punt on everything — only on points where
-the user's preferences or context legitimately matter.
+1–3 specific decision points left to the user, each with the relevant
+evidence compiled. Only points where the user's preferences or context
+legitimately matter — do not punt on everything.
 
-### Audit trail (brief)
-A small table showing how each agent's position evolved across rounds:
+### Audit trail (brief, `--full` mode only)
+A small table showing how each participant's position evolved:
 
 | Topic | Claude R1 → R2 | Codex R1 → R2 | Antigravity R1 → R2 |
 |---|---|---|---|
 
-Keep it tight — one row per major point, not per word.
-
-## Lightweight variant (Phase 1 + Phase 4)
-
-Skip Phases 2 and 3. Go straight from independent answers to synthesis. Tell
-the user up front you are doing this so they know the depth. The synthesis is
-the same structure, but **Disagreements** becomes dominant — agents had no
-chance to move, so most differences remain.
+One row per major point, not per word. Omit this section entirely in default
+mode — there is no R2 to show.
 
 ## Honesty rules
 
-These are **mandatory**, not optional:
+Mandatory, not optional:
 
-- **Do not silently degrade.** If only one external agent is reachable,
-  stop and get explicit user permission to run a 2-agent debate.
 - **Do not ratify a majority.** Two agents agreeing is evidence, not proof.
-  If two agree but you suspect a shared blind spot (same training-data era,
-  same vendor's marketing line, same canonical-but-wrong source), say so in
-  the synthesis.
+  If you suspect a shared blind spot (same training-data era, same vendor's
+  marketing line, same canonical-but-wrong source), say so in the synthesis.
 - **Do not paper over disagreement.** A genuine disagreement after
-  refinement IS valuable signal. Surface it — that is the deliverable.
+  refinement IS valuable signal — surface it, that is the deliverable.
 - **Do not invent positions.** If an agent's response was incoherent or
   off-topic, say so plainly rather than steel-manning it into something it
   did not say.
+- **Do not silently change scope.** Report the participant set once, at
+  Step 0, and hold to it for the rest of the run (lazy-auth drops excepted,
+  which are themselves reported when they happen).
 
-### Degradation
+## Side effects
 
-Scale the debate to the agents available in the Step 0 report:
-
-- **count 3** — full Delphi debate (Claude + codex + agy).
-- **count 2** — a *2-way* debate, explicitly labeled "(Claude + codex)" or
-  "(Claude + agy)" depending on which external agent is present.
-- **count 1** — a direct Claude answer, prefixed
-  "No debate possible (no external agents) —".
+None. No files are written, no state is persisted, no repository changes
+are made — everything above lives in this conversation.

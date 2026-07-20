@@ -34,6 +34,38 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --resume-last --raw \
 
 Frame it as a discussion, not a correction — either model could be wrong.
 
+For `/codex:review`, when the exact session ID from that run is available,
+prefer `--resume <session-id>` over `--resume-last` — the ambient "last
+session in this directory" could resolve to an unrelated run by the time a
+peer debate is warranted.
+
+## Review-specific: provenance and annotation (structured `/codex:review` results only)
+
+This section applies only to the structured evidence contract produced by
+`result-handler.mjs --type review`. It does not apply to `reason`, `exec`,
+`resume`, or `imagegen` — none of those are forced into this table format.
+
+- **Preserve provenance.** The raw result file stays byte-for-byte unchanged
+  on disk. Never edit, reformat, or "clean up" Codex's original JSON —
+  quote or reference it, and always disclose its full path.
+- **Account for every finding once.** Build a compact table from the printed
+  index covering every returned `F-NNN` ID exactly once — no dropped,
+  merged, or renumbered findings.
+- **Annotate, don't overwrite.** For each finding, add two independent
+  annotations without altering Codex's own `severity` or `claim`:
+  - **Evidence**: confirmed / contradicted / context-missing / not yet
+    evaluated.
+  - **Kind**: bug / security / performance / design / other.
+  Expand full detail (evidence, impact, minimal fix) only for critical/high,
+  contradicted, or context-missing entries by default; keep the rest to the
+  compact table.
+- **A validation failure is a failure, not an empty review.** If
+  `result-handler.mjs --type review` exits non-zero, report the failure and
+  the named artifact path. Never convert it into `NO_FINDINGS`.
+- **`NO_FINDINGS` is narrow.** It means only "no actionable findings for
+  this declared scope" — report it that way, including any limitations. It
+  is not evidence the code is correct or ready to ship.
+
 ## Permission gating for high-impact flags
 
 Before using any of these, confirm with the user via `AskUserQuestion` unless

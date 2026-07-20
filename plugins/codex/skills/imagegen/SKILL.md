@@ -1,6 +1,6 @@
 ---
 name: imagegen
-description: (context-hub:imagegen) Generate raster images via OpenAI gpt-image-2 (Codex CLI's built-in $imagegen). Use whenever the user wants images, icons, logos, illustrations, mockups, hero graphics, screenshots-as-output, or any visual asset — even if they don't name OpenAI, Codex, or image generation. Default image-generation path in this marketplace.
+description: Generate raster images via OpenAI gpt-image-2 (Codex CLI's built-in $imagegen). Use whenever the user wants images, icons, logos, illustrations, mockups, hero graphics, screenshots-as-output, or any visual asset — even if they don't name OpenAI, Codex, or image generation. Default image-generation path in this marketplace.
 argument-hint: <image generation prompt>
 ---
 
@@ -22,20 +22,6 @@ When invoked as `/codex:imagegen <prompt>`, the user's text arrives as
 Step 1. When this skill auto-triggers from conversation instead, derive the
 same brief from the surrounding context.
 
-## Step 0: Ensure the bridge is set up
-
-Run this first. It is a fast, idempotent no-op once the repo is configured:
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs --ensure
-```
-
-If it reports a first-time setup, tell the user in one plain line — e.g.
-"First use of the Codex bridge here, so I ran a quick one-time setup; starter
-standards files are under `docs/carefully-crafted-plugins/`, customize them
-anytime" — then continue. Do not pause for approval: the scaffold is safe and
-never overwrites existing files.
-
 ## Step 1: Draft sections 1–4 of the handoff spec
 
 - **Task slug**: short kebab-case (e.g. `todo-app-icon`).
@@ -48,9 +34,13 @@ never overwrites existing files.
   image model handles composition.
 - **Constraints**: relevant files from `docs/carefully-crafted-plugins/constraints/`
   (typically `design-system.md` — palette and tone guidance, not strict
-  rules).
+  rules). If the project has no such file, use the packaged default at
+  `${CLAUDE_PLUGIN_ROOT}/reference/defaults/constraints/design-system.md` —
+  never scaffold the project file yourself.
 - **Output format**: relevant file from `docs/carefully-crafted-plugins/output-formats/`
-  (defines dimensions, file type, where to save).
+  (defines dimensions, file type, where to save). If absent, use the
+  packaged default at `${CLAUDE_PLUGIN_ROOT}/reference/defaults/output-formats/<file>.md`
+  (e.g. `image-icon-256.md`, `image-hero-1024x768.md`).
 - **Artifact path**: `docs/carefully-crafted-plugins/output/images/<YYYY-MM-DD>-<slug>.png`.
 
 If a relevant superpowers spec exists in this session, pass its absolute
@@ -60,8 +50,10 @@ path as `--session-artifact`.
 
 Verify in this conversation:
 
-1. Every constraint file path exists on disk.
-2. The output-format file exists on disk.
+1. Every constraint path resolves — either the project-local file or the
+   packaged default under `${CLAUDE_PLUGIN_ROOT}/reference/defaults/` (always
+   present, so this never blocks).
+2. Same for the output-format path.
 3. The visual brief is clear enough to act on. Ask the user only if
    something material is missing (e.g. "what mood?" or "what should the
    focal subject be?") — do NOT over-pre-flight with dozens of detail

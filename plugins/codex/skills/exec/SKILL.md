@@ -1,7 +1,8 @@
 ---
 name: exec
-description: (context-hub:exec) Power-user escape hatch — pass any raw prompt directly to OpenAI Codex CLI without the 5-section handoff. Slash-command only: invoke as /codex:exec <prompt>. For structured delegation prefer /codex:imagegen, /codex:reason, /codex:review, or /codex:playwright.
+description: Power-user escape hatch — pass any raw prompt directly to OpenAI Codex CLI without the 5-section handoff. Slash-command only: invoke as /codex:exec <prompt>. For structured delegation prefer /codex:imagegen, /codex:reason, or /codex:review.
 argument-hint: <raw prompt for codex>
+disable-model-invocation: true
 ---
 
 # Codex Raw Passthrough
@@ -23,10 +24,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --raw "$ARGUMENTS"
    `danger-full-access`) — but treat that as a high-impact choice and confirm
    first, per `${CLAUDE_PLUGIN_ROOT}/reference/critical-evaluation.md`.
 
-   The wrapper defaults to `--model gpt-5.5`, `--reasoning-effort medium`,
+   The wrapper defaults to `--model gpt-5.6-sol`, `--reasoning-effort medium`,
    `--verbosity low` — the token-efficient floor. Pass `--reasoning-effort
-   high` or `xhigh` only when the task is genuinely hard; the `contexthub`
-   triage skill does this grading for you.
+   high`, `xhigh`, or `max` only when the task is genuinely hard.
 
 4. Relay Codex's output verbatim to the user. Do not re-interpret or re-format — the user opted into raw mode deliberately.
 
@@ -35,5 +35,5 @@ If the user did not provide any arguments, ask: "What should I pass to Codex?"
 ## Reminder
 
 For most tasks, prefer the structured skills (`imagegen`, `reason`,
-`playwright`, `review`) — they enforce constraint files, output-format
-contracts, and pre-flight clarification. `/codex:exec` skips all of that.
+`review`) — they enforce constraint files, output-format contracts, and
+pre-flight clarification. `/codex:exec` skips all of that.

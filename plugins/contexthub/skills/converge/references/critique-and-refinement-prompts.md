@@ -1,9 +1,10 @@
 # Critique & Refinement Prompt Templates
 
-Verbatim prompt strings for Phases 2 and 3 of the converge debate.
-Substitute the bracketed variables before sending. Pass the same
-exact text to both Codex and Antigravity in each phase so the agents
-are reasoning over identical material.
+Verbatim prompt strings for Phases 2 and 3 of the converge debate. These
+phases run only in `--full` mode — default-mode runs stop after Phase 1
+and never load this file. Substitute the bracketed variables before
+sending. Pass the same exact text to both Codex and Antigravity in each
+phase so the agents are reasoning over identical material.
 
 ## Phase 2 — Critique prompt
 

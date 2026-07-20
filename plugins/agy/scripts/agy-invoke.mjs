@@ -4,7 +4,7 @@
 //
 // Usage:
 //   node agy-invoke.mjs --prompt "<task>" [--json] [--cwd <dir>] [--verbose]
-//                       [--collect <dir>]
+//                       [--collect <dir> [--require-artifact]]
 //
 // Flags:
 //   --prompt "<task>"   the task to hand to Antigravity (required)
@@ -19,6 +19,11 @@
 //                       ignores prompt-stated save paths, so this is how the
 //                       agy-direct image fallback lands artifacts where the
 //                       caller asked. Prints "collected: <dest>" per file.
+//   --require-artifact  only valid alongside --collect. Treats a successful
+//                       agy run that yields no existing artifact as a
+//                       non-success (exit 1) instead of a silent success —
+//                       for callers (like the nanobanana skill) that promise
+//                       an image and need to know generation didn't land one.
 //
 // Env (a flag wins over its env equivalent):
 //   AGY_BIN             path to the agy binary, default "agy"
@@ -45,10 +50,11 @@
 //
 // Exit codes:
 //   0  success
-//   1  agy runtime error (not-installed, not-authed, rate-limited, timeout, unknown)
-//   2  invocation/config error
+//   1  agy runtime error (not-installed, not-authed, rate-limited, timeout,
+//      unknown) — or --require-artifact set but no artifact was collected
+//   2  invocation/config error (including --require-artifact without --collect)
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -149,17 +155,11 @@ function parseArgs(argv, valueFlags = new Set()) {
   return args;
 }
 
-function preflightAgyInstalled(agyBin) {
-  const probe = spawnSync(agyBin, ["--version"], { stdio: "ignore" });
-  // Only a missing binary is fatal here. A new CLI may not support --version,
-  // so a non-zero exit is not treated as "not installed".
-  if (probe.error && probe.error.code === "ENOENT") {
-    console.error(`agy-invoke: '${agyBin}' not found on PATH.`);
-    console.error("Install the Antigravity CLI:");
-    console.error("  curl -fsSL https://antigravity.google/cli/install.sh | bash");
-    console.error("Then run 'agy' once to sign in. Or set AGY_BIN to an explicit path.");
-    process.exit(1);
-  }
+function reportMissingBinary(agyBin) {
+  console.error(`agy-invoke: '${agyBin}' not found on PATH.`);
+  console.error("Install the Antigravity CLI:");
+  console.error("  curl -fsSL https://antigravity.google/cli/install.sh | bash");
+  console.error("Then run 'agy' once to sign in. Or set AGY_BIN to an explicit path.");
 }
 
 function categorizeError(stderrText) {
@@ -209,21 +209,33 @@ async function main() {
   const agyBin = process.env.AGY_BIN || "agy";
   const timeoutMs = Math.max(1, Number(process.env.AGY_TIMEOUT_SEC) || 600) * 1000;
   const verbose = args["verbose"] === true || process.env.AGY_VERBOSE === "1";
+  const requireArtifact = args["require-artifact"] === true;
 
   if (typeof args["prompt"] !== "string" || args["prompt"].trim() === "") {
     console.error('agy-invoke: must pass --prompt "<task>"');
     process.exit(2);
   }
 
-  preflightAgyInstalled(agyBin);
+  if (requireArtifact && typeof args["collect"] !== "string") {
+    console.error("agy-invoke: --require-artifact is only valid together with --collect.");
+    process.exit(2);
+  }
 
   const agyArgs = ["-p", args["prompt"]];
   if (args["json"] === true) agyArgs.push("--output-format", "json");
 
   const cwd = typeof args["cwd"] === "string" ? args["cwd"] : process.cwd();
 
+  // No synchronous `agy --version` preflight: the bounded real call below
+  // detects a missing binary (ENOENT), auth failures, rate limits, and
+  // timeouts on its own, without a preliminary process that a hung/odd
+  // `--version` implementation could block on.
   const result = await runAgy({ agyBin, agyArgs, cwd, timeoutMs, verbose });
 
+  if (result.error && result.error.code === "ENOENT") {
+    reportMissingBinary(agyBin);
+    process.exit(1);
+  }
   if (result.timedOut) {
     console.error(`\nagy-invoke: timed out after ${timeoutMs / 1000}s. Raise AGY_TIMEOUT_SEC if expected.`);
     process.exit(1);
@@ -238,15 +250,20 @@ async function main() {
   }
 
   if (typeof args["collect"] === "string") {
+    let written = [];
     try {
-      const written = collectArtifacts(result.stdout, args["collect"]);
-      if (written.length === 0) {
-        console.error("agy-invoke: --collect found no artifact paths in agy output.");
-      } else {
-        for (const dest of written) console.log(`collected: ${dest}`);
-      }
+      written = collectArtifacts(result.stdout, args["collect"]);
     } catch (err) {
       console.error(`agy-invoke: --collect failed: ${err.message}`);
+    }
+    if (written.length === 0) {
+      if (requireArtifact) {
+        console.error("agy-invoke: --require-artifact set but no artifact was found in agy output.");
+        process.exit(1);
+      }
+      console.error("agy-invoke: --collect found no artifact paths in agy output.");
+    } else {
+      for (const dest of written) console.log(`collected: ${dest}`);
     }
   }
 

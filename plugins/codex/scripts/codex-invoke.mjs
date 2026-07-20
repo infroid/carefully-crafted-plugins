@@ -6,25 +6,38 @@
 //   node codex-invoke.mjs --spec-path <abs path> [options]
 //   node codex-invoke.mjs --raw "<prompt>"        [options]
 //   node codex-invoke.mjs --resume-last --raw "<follow-up>" [--verbose]
+//   node codex-invoke.mjs --resume <session-id> --raw "<follow-up>" [--verbose]
 //
 // Options:
 //   --imagegen               Prefix the prompt with `$imagegen` (gpt-image-2).
 //   --ref <path>             Attach a reference image. May be repeated.
-//   --model <name>           Pass `-m <name>` to codex. Default: gpt-5.5
+//   --model <name>           Pass `-m <name>` to codex. Default: gpt-5.6-sol
 //                            (current frontier coding model on the account).
 //                            Override with --model or CODEX_MODEL.
-//   --reasoning-effort <e>   One of: low | medium | high | xhigh.
-//                            Default: medium (token-efficient floor — the
-//                            contexthub triage skill escalates to high/xhigh when a
-//                            task is graded hard).
+//   --reasoning-effort <e>   One of: none | low | medium | high | xhigh | max.
+//                            Default: medium (token-efficient floor). Values
+//                            outside this set are rejected before Codex is
+//                            ever spawned — the real CLI performs no effort
+//                            validation of its own and would silently accept
+//                            and bill an undefined effort.
 //   --verbosity <v>          One of: low | medium | high. Default: low.
 //                            Translated to `-c model_verbosity=<v>` for codex.
 //   --sandbox <mode>         read-only | workspace-write | danger-full-access.
-//                            Default: read-only.
+//                            Default: read-only. An explicit --sandbox always
+//                            wins over the ambient CODEX_SANDBOX env var.
+//   --output-schema <path>   Absolute path to a regular JSON Schema file.
+//                            Spec mode only — overrides the packaged generic
+//                            schema (output-schema.json) for this call. Not
+//                            valid with --raw or any --resume* mode.
 //   --resume-last            Resume the most recent codex session in the cwd
 //                            (`codex exec resume --last`). Requires --raw.
 //                            The resumed session inherits the original
-//                            model, reasoning effort, and sandbox.
+//                            model, reasoning effort, and sandbox. Manual
+//                            convenience path only — mutually exclusive with
+//                            --resume.
+//   --resume <session-id>    Resume a specific codex session by id
+//                            (`codex exec resume <session-id>`). Requires
+//                            --raw. Mutually exclusive with --resume-last.
 //   --verbose                Stream Codex's full stdout/stderr live. Off by
 //                            default to protect the caller's context window.
 //
@@ -32,7 +45,7 @@
 //   CODEX_TIMEOUT_SEC        timeout in seconds, default 120
 //   CODEX_BIN                path to the codex binary, default "codex"
 //   CODEX_SANDBOX            default sandbox mode, default "read-only"
-//   CODEX_MODEL              default model (built-in default: gpt-5.5)
+//   CODEX_MODEL              default model (built-in default: gpt-5.6-sol)
 //   CODEX_REASONING_EFFORT   default reasoning effort (built-in default: medium)
 //   CODEX_VERBOSITY          default model verbosity (built-in default: low)
 //   CODEX_VERBOSE            "1" to force verbose stderr streaming (orthogonal
@@ -48,17 +61,35 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+// GPT-5.6 Sol execution policy: this is the full, official set of reasoning
+// efforts. The real Codex CLI does not validate `-c model_reasoning_effort=<v>`
+// at all — it silently accepts and bills any string, including nonsense like
+// `ultra`. This wrapper is therefore the only gate: anything outside this set
+// is rejected before argv is built and before Codex is ever spawned.
+const REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 const VERBOSITIES = new Set(["low", "medium", "high"]);
 const SANDBOXES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 
 // Built-in defaults: best model, medium reasoning effort, lowest verbosity.
-// `medium` is the token-efficient floor — the contexthub triage skill escalates to
-// `high` or `xhigh` when a task is graded hard. Direct callers can still
-// override with --reasoning-effort or CODEX_REASONING_EFFORT.
-const DEFAULT_MODEL = "gpt-5.5";
+// `medium` is the token-efficient floor. Direct callers can still override
+// with --reasoning-effort or CODEX_REASONING_EFFORT.
+const DEFAULT_MODEL = "gpt-5.6-sol";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_VERBOSITY = "low";
+
+// The exact, exhaustive set of flags this wrapper understands (see the
+// Options block in the header comment). An unrecognized flag must be a hard
+// error, not a silent no-op: `--effort ultra` (the real flag is
+// `--reasoning-effort`) previously parsed fine, was stored under
+// `args["effort"]`, and was never read by anything — so the call silently
+// ran at the DEFAULT reasoning effort instead of the one the caller asked
+// for, or being rejected. "Reject an out-of-range effort like `ultra`" is
+// this wrapper's whole reason for existing (see REASONING_EFFORTS above);
+// a typo'd flag name must not be a backdoor around that validation.
+const KNOWN_FLAGS = new Set([
+  "spec-path", "raw", "resume-last", "resume", "imagegen", "ref",
+  "model", "reasoning-effort", "verbosity", "sandbox", "output-schema", "verbose",
+]);
 
 function parseArgs(argv) {
   const args = { ref: [] };
@@ -66,6 +97,11 @@ function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
     const key = a.slice(2);
+    if (!KNOWN_FLAGS.has(key)) {
+      console.error(`codex-invoke: unknown flag --${key}`);
+      console.error(`Known flags: ${[...KNOWN_FLAGS].map((f) => `--${f}`).join(", ")}`);
+      process.exit(2);
+    }
     const next = argv[i + 1];
     const hasVal = next !== undefined && !next.startsWith("--");
     if (key === "ref") {
@@ -178,7 +214,14 @@ async function main() {
   const timeoutMs = Math.max(1, Number(process.env.CODEX_TIMEOUT_SEC) || 120) * 1000;
   const verbose = args["verbose"] === true || process.env.CODEX_VERBOSE === "1";
   const resumeLast = args["resume-last"] === true;
+  const resumeSessionId = typeof args["resume"] === "string" ? args["resume"] : null;
   const useImagegen = args["imagegen"] === true;
+
+  if (resumeLast && resumeSessionId) {
+    console.error("codex-invoke: --resume-last and --resume are mutually exclusive — pick one");
+    process.exit(2);
+  }
+  const isResumeMode = resumeLast || resumeSessionId !== null;
 
   const sandbox = typeof args["sandbox"] === "string"
     ? args["sandbox"]
@@ -206,6 +249,12 @@ async function main() {
     process.exit(2);
   }
 
+  const explicitOutputSchema = typeof args["output-schema"] === "string" ? args["output-schema"] : null;
+  if (explicitOutputSchema && (isResumeMode || typeof args["raw"] === "string")) {
+    console.error("codex-invoke: --output-schema is only valid in spec mode (--spec-path); not with --raw or --resume*");
+    process.exit(2);
+  }
+
   preflightCodexInstalled(codexBin);
 
   const refPaths = (args.ref || []).map((p) => resolve(p));
@@ -216,14 +265,18 @@ async function main() {
     }
   }
 
-  // Resume: a raw follow-up to the most recent session in this directory.
-  // The resumed session inherits model/effort/sandbox, so we pass none of them.
-  if (resumeLast) {
+  // Resume: a raw follow-up to an existing session. The resumed session
+  // inherits model/effort/sandbox, so we pass none of them — and `codex exec
+  // resume` does not accept -s/--sandbox or -C/--cd anyway.
+  if (isResumeMode) {
     if (typeof args["raw"] !== "string") {
-      console.error('codex-invoke: --resume-last requires --raw "<follow-up prompt>"');
+      const flag = resumeLast ? "--resume-last" : "--resume";
+      console.error(`codex-invoke: ${flag} requires --raw "<follow-up prompt>"`);
       process.exit(2);
     }
-    const codexArgs = ["exec", "--skip-git-repo-check", "resume", "--last", args["raw"]];
+    const codexArgs = resumeLast
+      ? ["exec", "--skip-git-repo-check", "resume", "--last", args["raw"]]
+      : ["exec", "--skip-git-repo-check", "resume", resumeSessionId, args["raw"]];
     const result = await runCodex({ codexBin, codexArgs, timeoutMs, verbose, showStdout: true, logPath: null });
     failFastOnError(result, timeoutMs, verbose);
     process.exit(0);
@@ -260,9 +313,23 @@ async function main() {
     const base = basename(specPath).replace(/\.md$/, "");
     outputLastMessage = join(resultDir, `result-${base}.txt`);
     logPath = join(resultDir, `log-${base}.txt`);
-    outputSchema = resolve(new URL("./output-schema.json", import.meta.url).pathname);
+
+    if (explicitOutputSchema) {
+      const schemaPath = resolve(explicitOutputSchema);
+      if (!existsSync(schemaPath)) {
+        console.error(`codex-invoke: --output-schema file does not exist: ${schemaPath}`);
+        process.exit(2);
+      }
+      if (!statSync(schemaPath).isFile()) {
+        console.error(`codex-invoke: --output-schema must be a file, not a directory: ${schemaPath}`);
+        process.exit(2);
+      }
+      outputSchema = schemaPath;
+    } else {
+      outputSchema = resolve(new URL("./output-schema.json", import.meta.url).pathname);
+    }
   } else {
-    console.error('codex-invoke: must pass --spec-path <abs path>, --raw "<prompt>", or --resume-last --raw "<prompt>"');
+    console.error('codex-invoke: must pass --spec-path <abs path>, --raw "<prompt>", --resume-last --raw "<prompt>", or --resume <session-id> --raw "<prompt>"');
     process.exit(2);
   }
 

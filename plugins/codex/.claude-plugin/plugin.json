@@ -1,8 +1,8 @@
 {
   "name": "codex",
-  "version": "3.1.2",
-  "description": "OpenAI Codex CLI bridge for Claude Code: hard reasoning (xhigh), code review (high), Playwright browser (medium), image generation (gpt-image-2), session resume, raw exec. Structured 5-section handoff spec on every call. Default effort lowered to medium for token efficiency; the contexthub triage skill escalates per task.",
+  "version": "4.0.0",
+  "description": "OpenAI Codex CLI bridge for Claude Code: image generation (gpt-image-2), hard reasoning (GPT-5.6 Sol at xhigh), an independent read-only code review on explicit request, session resume, raw exec. A 5-section handoff spec on every structured delegation; exec and resume pass through directly. Optional and installed separately — only needed for /codex:* commands.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
-  "keywords": ["codex", "openai", "bridge", "imagegen", "code-review", "playwright", "delegation"]
+  "keywords": ["codex", "openai", "bridge", "imagegen", "reason", "review", "resume", "setup", "exec", "delegation"]
 }

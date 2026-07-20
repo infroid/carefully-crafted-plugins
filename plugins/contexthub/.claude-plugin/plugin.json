@@ -1,8 +1,11 @@
 {
   "name": "contexthub",
-  "version": "4.0.0",
-  "description": "The multi-agent hub for Claude Code: the full software lifecycle (spec, plan, tdd, review, verify, debug, ship), token-efficient task triage, and the four-phase Delphi converge debate. Ties Claude, OpenAI Codex, and Google Antigravity together, degrading gracefully to whichever of the three are installed.",
+  "version": "5.0.0",
+  "description": "The multi-agent hub for Claude Code: a short cross-provider convergence debate among Claude, OpenAI Codex, and Google Antigravity, and token-efficient supervision where Claude plans and reviews while isolated GPT-5.6 Sol Codex workers implement. Requires Superpowers (auto-resolved on install); the public codex bridge is optional and installed separately.",
   "author": { "name": "Aman Rai", "email": "raiaman15@gmail.com" },
   "homepage": "https://github.com/infroid/carefully-crafted-plugins",
-  "keywords": ["contexthub", "multi-agent", "lifecycle", "triage", "converge", "delphi", "spec", "plan", "tdd", "review", "verify", "debug", "ship", "degradation", "ensemble", "synthesis"]
+  "dependencies": [
+    { "name": "superpowers", "marketplace": "claude-plugins-official" }
+  ],
+  "keywords": ["contexthub", "multi-agent", "converge", "delphi", "supervise", "supervision", "codex-workers", "grading", "degradation", "ensemble", "synthesis"]
 }

@@ -116,3 +116,75 @@ test("non-zero agy exit is categorized and surfaced", () => {
     rmSync(ctx.dir, { recursive: true, force: true });
   }
 });
+
+test("no invocation argv references the removed MCP backend concepts", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--prompt", "generate an image of a fox", "--json"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const argv = recordedArgv(ctx.recordFile);
+    const joined = argv.join(" ").toLowerCase();
+    for (const banned of ["gemini", "npm", "mcp", "extension", "nanobanana_api_key"]) {
+      assert.ok(!joined.includes(banned), `argv should not reference "${banned}": ${joined}`);
+    }
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("stdout stays limited to the Agy final response and collected artifact paths", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--prompt", "refactor the auth module"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.equal(res.stdout, "FAKE_AGY_STDOUT_MARKER\n");
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+const FAKE_AGY_HANGS_ON_VERSION = `#!/usr/bin/env node
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") {
+  // Simulate a hung version probe: never exit, never write anything.
+  setInterval(() => {}, 1000);
+} else {
+  process.stdout.write("FAKE_AGY_STDOUT_MARKER\\n");
+  process.exit(0);
+}
+`;
+
+test("no preflight invokes `agy --version`; a hanging version command doesn't block the real call", () => {
+  const ctx = setup();
+  const fakeAgy = join(ctx.dir, "fake-agy-hangs.mjs");
+  writeFileSync(fakeAgy, FAKE_AGY_HANGS_ON_VERSION, "utf8");
+  chmodSync(fakeAgy, 0o755);
+  try {
+    const res = spawnSync("node", [SCRIPT, "--prompt", "hello"], {
+      cwd: ctx.dir,
+      encoding: "utf8",
+      env: { ...process.env, AGY_BIN: fakeAgy },
+      timeout: 5000,
+    });
+    assert.equal(res.status, 0, `stderr: ${res.stderr}, signal: ${res.signal}`);
+    assert.match(res.stdout, /FAKE_AGY_STDOUT_MARKER/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("a missing executable is categorized from the real spawn error without a preliminary process", () => {
+  const ctx = setup();
+  try {
+    const res = spawnSync("node", [SCRIPT, "--prompt", "hello"], {
+      cwd: ctx.dir,
+      encoding: "utf8",
+      env: { ...process.env, AGY_BIN: join(ctx.dir, "definitely-does-not-exist-agy") },
+      timeout: 5000,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /not found on PATH/);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
