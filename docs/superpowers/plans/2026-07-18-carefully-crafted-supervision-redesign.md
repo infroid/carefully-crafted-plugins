@@ -2225,6 +2225,27 @@ This test changes local plugin installation state and may access marketplaces, s
 
 Before the smoke, capture the real `claude plugin list --json`. Create a disposable directory with `mktemp -d`, place both `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PLUGIN_CACHE_DIR` beneath that exact root for **every** marketplace/add/install/disable/list subprocess, register only this repository's local marketplace, and use only the explicitly approved credential source needed to reach the official marketplace; never copy or print credentials. Afterward compare a fresh real-config plugin list byte-for-byte with the pre-smoke snapshot, then remove only the validated disposable root. Tests/logs must show that no command ran without both isolated environment variables. If the isolated config cannot access the official marketplace without importing live user state, report the smoke as blocked rather than weakening isolation.
 
+**RESULT 2026-07-20 — PASSED.** Run in two disposable roots under `mktemp -d`, with
+`CLAUDE_CONFIG_DIR` *and* `CLAUDE_CODE_PLUGIN_CACHE_DIR` set on every subprocess.
+
+| check | result |
+|---|---|
+| `superpowers@claude-plugins-official` auto-installed + enabled | ✔ `(+ 1 dependency: superpowers)`, v6.1.1 |
+| public `codex` plugin NOT auto-installed | ✔ only contexthub + superpowers present |
+| disabling the dependency rejected while `contexthub` enabled | ✔ *"superpowers is still required by contexthub"* with an actionable remedy |
+| control: disabling `contexthub` itself allowed | ✔ |
+| real user config unchanged | ✔ byte-for-byte identical SHA-256 pre/post; marketplace count 2→2 |
+
+Tested Claude Code **2.1.199**; Claude-side Superpowers **6.1.1**; contexthub **5.0.0**;
+marketplace `claude-plugins-official` (source `anthropics/claude-plugins-official`).
+
+**Finding worth recording:** with the official marketplace *absent*, `plugin install` reports
+success and installs contexthub alone — the unresolved dependency surfaces only on a subsequent
+install attempt, as *"1 dependency still unresolved: superpowers@claude-plugins-official. Is the
+'claude-plugins-official' marketplace added?"*. The diagnostic is accurate and names the
+marketplace, but a first-time install into a config lacking that marketplace succeeds quietly.
+README installation guidance should tell users to add `claude-plugins-official` first.
+
 Record the tested Claude Code version and Claude-side Superpowers version/snapshot. Also record the independently installed Codex CLI version, Codex-side Superpowers plugin version, and required worker-skill inventory. Do not add an unverified Superpowers semver constraint afterward.
 
 - [ ] **Step 7: Run one paid end-to-end supervisor smoke test with user authorization**
