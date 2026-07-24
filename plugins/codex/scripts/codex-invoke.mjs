@@ -31,10 +31,10 @@
 //                            valid with --raw or any --resume* mode.
 //   --resume-last            Resume the most recent codex session in the cwd
 //                            (`codex exec resume --last`). Requires --raw.
-//                            The resumed session inherits the original
-//                            model, reasoning effort, and sandbox. Manual
-//                            convenience path only — mutually exclusive with
-//                            --resume.
+//                            The wrapper pins the validated sandbox mode with
+//                            `-c sandbox_mode=<mode>` (default: read-only).
+//                            Model and reasoning effort remain session-owned.
+//                            Mutually exclusive with --resume.
 //   --resume <session-id>    Resume a specific codex session by id
 //                            (`codex exec resume <session-id>`). Requires
 //                            --raw. Mutually exclusive with --resume-last.
@@ -90,6 +90,7 @@ const KNOWN_FLAGS = new Set([
   "spec-path", "raw", "resume-last", "resume", "imagegen", "ref",
   "model", "reasoning-effort", "verbosity", "sandbox", "output-schema", "verbose",
 ]);
+const BOOLEAN_FLAGS = new Set(["resume-last", "imagegen", "verbose"]);
 
 function parseArgs(argv) {
   const args = { ref: [] };
@@ -102,8 +103,12 @@ function parseArgs(argv) {
       console.error(`Known flags: ${[...KNOWN_FLAGS].map((f) => `--${f}`).join(", ")}`);
       process.exit(2);
     }
+    if (BOOLEAN_FLAGS.has(key)) {
+      args[key] = true;
+      continue;
+    }
     const next = argv[i + 1];
-    const hasVal = next !== undefined && !next.startsWith("--");
+    const hasVal = next !== undefined;
     if (key === "ref") {
       if (!hasVal) {
         console.error("codex-invoke: --ref requires a path argument");
@@ -111,9 +116,11 @@ function parseArgs(argv) {
       }
       args.ref.push(next);
       i++;
-    } else if (!hasVal) {
-      args[key] = true;
     } else {
+      if (!hasVal) {
+        console.error(`codex-invoke: --${key} requires an argument`);
+        process.exit(2);
+      }
       args[key] = next;
       i++;
     }
@@ -265,9 +272,9 @@ async function main() {
     }
   }
 
-  // Resume: a raw follow-up to an existing session. The resumed session
-  // inherits model/effort/sandbox, so we pass none of them — and `codex exec
-  // resume` does not accept -s/--sandbox or -C/--cd anyway.
+  // Resume keeps model/effort session-owned. `exec resume` has no
+  // -s/--sandbox flag, so pin the validated mode through its supported config
+  // override; otherwise ambient user config could resolve to danger-full-access.
   if (isResumeMode) {
     if (typeof args["raw"] !== "string") {
       const flag = resumeLast ? "--resume-last" : "--resume";
@@ -275,8 +282,8 @@ async function main() {
       process.exit(2);
     }
     const codexArgs = resumeLast
-      ? ["exec", "--skip-git-repo-check", "resume", "--last", args["raw"]]
-      : ["exec", "--skip-git-repo-check", "resume", resumeSessionId, args["raw"]];
+      ? ["exec", "--skip-git-repo-check", "resume", "-c", `sandbox_mode=${sandbox}`, "--last", args["raw"]]
+      : ["exec", "--skip-git-repo-check", "resume", "-c", `sandbox_mode=${sandbox}`, resumeSessionId, args["raw"]];
     const result = await runCodex({ codexBin, codexArgs, timeoutMs, verbose, showStdout: true, logPath: null });
     failFastOnError(result, timeoutMs, verbose);
     process.exit(0);

@@ -43,4 +43,4 @@ The script prints a summary of what was created, what was skipped (already exist
 - Edit the starter files in `docs/carefully-crafted-plugins/constraints/` to encode your project's standards (these are referenced by every handoff).
 - Edit the starter files in `docs/carefully-crafted-plugins/output-formats/` to define expected output shapes per use case.
 - Both directories grow over time as you encounter new use cases.
-- If `codex` was not detected, install it: `npm install -g @openai/codex` or `brew install codex`, then run `codex auth`.
+- If `codex` was not detected, install it: `npm install -g @openai/codex` or `brew install codex`, then run `codex login`.

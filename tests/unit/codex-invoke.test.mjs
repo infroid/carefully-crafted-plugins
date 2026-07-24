@@ -95,7 +95,7 @@ test("spec mode passes model, reasoning effort, sandbox, and skip-git-repo-check
   }
 });
 
-test("resume mode builds `exec --skip-git-repo-check resume --last <prompt>`", () => {
+test("resume mode pins read-only sandbox and builds `exec resume --last <prompt>`", () => {
   const ctx = setup();
   try {
     const res = run(["--resume-last", "--raw", "tighten the error handling"], ctx);
@@ -104,8 +104,32 @@ test("resume mode builds `exec --skip-git-repo-check resume --last <prompt>`", (
       "exec",
       "--skip-git-repo-check",
       "resume",
+      "-c",
+      "sandbox_mode=read-only",
       "--last",
       "tighten the error handling",
+    ]);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("resume mode honors an explicit validated sandbox over ambient config", () => {
+  const ctx = setup();
+  try {
+    const res = run(
+      ["--resume-last", "--raw", "continue editing", "--sandbox", "workspace-write"],
+      { ...ctx, extraEnv: { CODEX_SANDBOX: "danger-full-access" } },
+    );
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.deepEqual(recordedArgv(ctx.recordFile), [
+      "exec",
+      "--skip-git-repo-check",
+      "resume",
+      "-c",
+      "sandbox_mode=workspace-write",
+      "--last",
+      "continue editing",
     ]);
   } finally {
     rmSync(ctx.dir, { recursive: true, force: true });
@@ -131,6 +155,18 @@ test("sandbox defaults to read-only when not specified", () => {
       "model_verbosity=low",
       "hello",
     ]);
+  } finally {
+    rmSync(ctx.dir, { recursive: true, force: true });
+  }
+});
+
+test("a raw prompt value beginning with -- is passed through literally", () => {
+  const ctx = setup();
+  try {
+    const res = run(["--raw", "--help"], ctx);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    const argv = recordedArgv(ctx.recordFile);
+    assert.equal(argv.at(-1), "--help");
   } finally {
     rmSync(ctx.dir, { recursive: true, force: true });
   }
@@ -236,6 +272,8 @@ test("--resume <session-id> builds `exec --skip-git-repo-check resume <id> <prom
       "exec",
       "--skip-git-repo-check",
       "resume",
+      "-c",
+      "sandbox_mode=read-only",
       "9f2c1e3a-...-uuid",
       "tighten the error handling",
     ]);

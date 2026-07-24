@@ -27,9 +27,11 @@ and talk to it as a peer. Identify yourself as Claude, using your actual
 running model name:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --resume-last --raw \
-  "This is Claude (<your current model name>) following up. I disagree with
-   [X] because [evidence]. What's your take?"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
+  --resume-last \
+  --raw "This is Claude (<your current model name>) following up. I disagree with
+   [X] because [evidence]. What's your take?" \
+  --sandbox read-only
 ```
 
 Frame it as a discussion, not a correction — either model could be wrong.
@@ -37,7 +39,7 @@ Frame it as a discussion, not a correction — either model could be wrong.
 For `/codex:review`, when the exact session ID from that run is available,
 prefer `--resume <session-id>` over `--resume-last` — the ambient "last
 session in this directory" could resolve to an unrelated run by the time a
-peer debate is warranted.
+peer debate is warranted. Pin review follow-ups with `--sandbox read-only`.
 
 ## Review-specific: provenance and annotation (structured `/codex:review` results only)
 

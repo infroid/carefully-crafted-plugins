@@ -1,6 +1,6 @@
 ---
 name: resume
-description: Continue the most recent OpenAI Codex session in this directory with a follow-up prompt — keeps the original transcript, plan, approvals, model, effort, and sandbox. Slash-command only: invoke as /codex:resume <follow-up>.
+description: Continue the most recent OpenAI Codex session in this directory with a follow-up prompt while pinning the resumed run to a read-only sandbox. Slash-command only: invoke as /codex:resume <follow-up>.
 argument-hint: <follow-up for the last Codex session>
 disable-model-invocation: true
 ---
@@ -8,9 +8,10 @@ disable-model-invocation: true
 # Codex Session Resume
 
 This skill continues the **most recent Codex session in the current
-directory** — `codex exec resume --last`. The resumed session keeps the
-original transcript, plan history, and approvals, and inherits its model,
-reasoning effort, and sandbox mode. It is slash-command only.
+directory** — `codex exec resume --last`. The resumed session keeps its
+transcript and model context. The wrapper explicitly pins the resumed run
+to `sandbox_mode=read-only` so current user configuration cannot silently
+escalate it. It is slash-command only.
 
 When the user runs `/codex:resume <follow-up>`:
 
@@ -20,7 +21,10 @@ When the user runs `/codex:resume <follow-up>`:
 2. Invoke:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --resume-last --raw "$ARGUMENTS"
+node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs \
+  --resume-last \
+  --raw "$ARGUMENTS" \
+  --sandbox read-only
 ```
 
 3. Relay Codex's output to the user, then apply
@@ -38,6 +42,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/codex-invoke.mjs --resume-last --raw "$ARGUME
 
 - "Last" is scoped to the current working directory. If several Codex sessions
   were run here, it resumes the most recent one.
-- Do not pass `--model`, `--reasoning-effort`, or `--sandbox` on a resume — the
-  session already has them. If the user explicitly wants different settings,
-  start a fresh delegation instead of resuming.
+- Model and reasoning effort remain session-owned. The wrapper pins sandbox
+  mode independently.
+- If the follow-up must edit files, add `--sandbox workspace-write` only after
+  the user authorizes that escalation. Never assume the prior run's effective
+  sandbox is still in force.
